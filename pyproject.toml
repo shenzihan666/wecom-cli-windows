@@ -26,6 +26,19 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]  # line length handled by the formatter, not enforced as a lint error
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency-injection defaults (Depends/Query/...) are idiomatic, not B008 bugs.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+]
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",

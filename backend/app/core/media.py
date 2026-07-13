@@ -1,29 +1,26 @@
-"""Thin wecom-cli JSON-RPC helpers. No AI required."""
+"""Media download + browser-friendly conversion (AMR->MP3, HEVC->H.264).
+
+Bundled ./ffmpeg or ./bin binaries are preferred over PATH.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
-from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-MEDIA_DIR = ROOT / "media"
+from ..config import settings
+from .rpc import wecom_cli
 
-
-def _wecom_cli() -> str:
-    """Resolve wecom-cli for subprocess (Windows needs .cmd via shutil.which)."""
-    cmd = shutil.which("wecom-cli")
-    if not cmd:
-        raise FileNotFoundError("wecom-cli not found in PATH")
-    return cmd
+MEDIA_DIR = settings.media_dir
 
 
 def _tool_bin(name: str) -> str:
     """Prefer bundled ./ffmpeg or ./bin, then PATH."""
-    for base in (ROOT / "ffmpeg", ROOT / "bin"):
+    for base in (settings.project_root / "ffmpeg", settings.project_root / "bin"):
         for candidate in (base / name, base / f"{name}.exe"):
             if candidate.is_file():
                 return str(candidate)
@@ -31,62 +28,6 @@ def _tool_bin(name: str) -> str:
     if not cmd:
         raise FileNotFoundError(f"{name} not found in ./ffmpeg, ./bin, or PATH")
     return cmd
-
-
-def rpc(args: list[str]) -> dict:
-    # encoding=utf-8: Windows default locale (cp936) corrupts CLI JSON with CJK names
-    out = subprocess.check_output(
-        [_wecom_cli(), *args],
-        encoding="utf-8",
-        stderr=subprocess.STDOUT,
-    )
-    outer = json.loads(out)
-    if outer.get("result", {}).get("isError"):
-        raise RuntimeError(out)
-    return json.loads(outer["result"]["content"][0]["text"])
-
-
-def time_window(days: float = 6.0) -> tuple[str, str]:
-    end = datetime.now()
-    begin = end - timedelta(days=days)
-    fmt = "%Y-%m-%d %H:%M:%S"
-    return begin.strftime(fmt), end.strftime(fmt)
-
-
-def get_userlist() -> list[dict]:
-    return rpc(["contact", "get_userlist", "{}"]).get("userlist") or []
-
-
-def get_messages(chatid: str, begin: str, end: str, chat_type: int = 1) -> list[dict]:
-    msgs: list[dict] = []
-    cursor = ""
-    while True:
-        payload: dict = {
-            "chat_type": chat_type,
-            "chatid": chatid,
-            "begin_time": begin,
-            "end_time": end,
-        }
-        if cursor:
-            payload["cursor"] = cursor
-        data = rpc(["msg", "get_message", json.dumps(payload, ensure_ascii=False)])
-        if data.get("errcode"):
-            return []
-        msgs.extend(data.get("messages") or [])
-        cursor = data.get("next_cursor") or ""
-        if not cursor:
-            break
-    return msgs
-
-
-def send_text(chatid: str, content: str, chat_type: int = 1) -> dict:
-    payload = {
-        "chat_type": chat_type,
-        "chatid": chatid,
-        "msgtype": "text",
-        "text": {"content": content},
-    }
-    return rpc(["msg", "send_message", json.dumps(payload, ensure_ascii=False)])
 
 
 def _amr_to_mp3(amr_path: Path) -> Path | None:
@@ -244,13 +185,17 @@ def _find_cached_media(msgtype: str, media_id: str, send_time: str) -> dict | No
     return None
 
 
-def _get_msg_media_local(media_id: str) -> tuple[str | None, str, str]:
+def _get_msg_media_local(
+    media_id: str, config_dir: str | Path | None = None
+) -> tuple[str | None, str, str]:
     """Return (local_path, name, content_type). Handles CLI 'file already exists'."""
-    import re
-
-    cmd = [_wecom_cli(), "msg", "get_msg_media", json.dumps({"media_id": media_id})]
+    cmd = [wecom_cli(), "msg", "get_msg_media", json.dumps({"media_id": media_id})]
+    env = None
+    if config_dir:
+        env = os.environ.copy()
+        env["WECOM_CLI_CONFIG_DIR"] = str(config_dir)
     try:
-        out = subprocess.check_output(cmd, encoding="utf-8", stderr=subprocess.STDOUT)
+        out = subprocess.check_output(cmd, encoding="utf-8", stderr=subprocess.STDOUT, env=env)
     except subprocess.CalledProcessError as e:
         text = e.output or str(e)
         m = re.search(r"已存在[：:]\s*(\S+)", text)
@@ -283,10 +228,15 @@ def _get_msg_media_local(media_id: str) -> tuple[str | None, str, str]:
     return item.get("local_path"), item.get("name") or "", item.get("content_type") or ""
 
 
-def fetch_media(media_id: str, msgtype: str, send_time: str = "") -> dict | None:
+def fetch_media(
+    media_id: str,
+    msgtype: str,
+    send_time: str = "",
+    config_dir: str | Path | None = None,
+) -> dict | None:
     """Download media to MEDIA_DIR; return {filename, content_type, size} or None.
 
-    Voice (AMR) → MP3; video (e.g. HEVC) → H.264 MP4 for browser playback.
+    Voice (AMR) -> MP3; video (e.g. HEVC) -> H.264 MP4 for browser playback.
     media_id from WeCom often rotates; we also match by send_time cache.
     """
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -295,7 +245,7 @@ def fetch_media(media_id: str, msgtype: str, send_time: str = "") -> dict | None
         return cached
 
     try:
-        local, name, ctype = _get_msg_media_local(media_id)
+        local, name, ctype = _get_msg_media_local(media_id, config_dir=config_dir)
     except Exception:
         # last resort: stamp-only cache (download failed)
         return _find_cached_media(msgtype, media_id, send_time)
@@ -319,10 +269,3 @@ def fetch_media(media_id: str, msgtype: str, send_time: str = "") -> dict | None
             pass
 
     return _finalize_media(dest, msgtype, ctype)
-
-
-def preview_text(m: dict) -> str:
-    mt = m.get("msgtype")
-    if mt == "text":
-        return (m.get("text") or {}).get("content") or ""
-    return f"[{mt}]"

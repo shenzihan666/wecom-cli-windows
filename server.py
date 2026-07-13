@@ -3,6 +3,7 @@
 
 ponytail: in-memory cache + 5s poll. Ceiling: ~6 day history, no push. Upgrade: session archive / webhook.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,9 @@ from wecom_rpc import (
 
 HOST = os.environ.get("WECOM_WEB_HOST", "127.0.0.1")
 PORT = int(os.environ.get("WECOM_WEB_PORT", "8765"))
-SELF_USERID = os.environ.get("SELF_USERID", "WangGuoZheng")
+# Empty = auto-detect from DM senders (wecom-cli has no "whoami"). Env wins if set.
+_SELF_FROM_ENV = os.environ.get("SELF_USERID", "").strip()
+SELF_USERID = _SELF_FROM_ENV
 POLL_SEC = float(os.environ.get("WECOM_POLL_SEC", "5"))
 STATIC_DIR = ROOT / "static"
 CACHE_PATH = ROOT / "data" / "cache.json"
@@ -41,6 +44,28 @@ _users: dict[str, str] = {}
 _last_sync: str | None = None
 _syncing = False
 _error: str | None = None
+
+
+def _infer_self_userid(conversations: dict[str, dict]) -> str:
+    """In a 1:1 DM, senders who are not the chat peer are the logged-in user."""
+    from collections import Counter
+
+    votes: Counter[str] = Counter()
+    for peer, conv in conversations.items():
+        for m in conv.get("messages") or []:
+            uid = m.get("userid") or ""
+            if uid and uid != peer:
+                votes[uid] += 1
+    return votes.most_common(1)[0][0] if votes else ""
+
+
+def _set_self_userid(uid: str, reason: str) -> None:
+    global SELF_USERID
+    if not uid or uid == SELF_USERID:
+        return
+    SELF_USERID = uid
+    name = _users.get(uid) or uid
+    print(f"self_userid={uid} ({name}) via {reason}")
 
 
 def _load_cache() -> None:
@@ -55,6 +80,14 @@ def _load_cache() -> None:
             _conversations.clear()
             _conversations.update(data.get("conversations") or {})
             _last_sync = data.get("last_sync")
+            if not _SELF_FROM_ENV:
+                cached_self = (data.get("self_userid") or "").strip()
+                if cached_self:
+                    _set_self_userid(cached_self, "cache")
+                else:
+                    inferred = _infer_self_userid(_conversations)
+                    if inferred:
+                        _set_self_userid(inferred, "cache-infer")
         print(f"loaded cache: {len(_conversations)} conversations (last_sync={_last_sync})")
     except Exception:
         traceback.print_exc()
@@ -66,6 +99,7 @@ def _save_cache() -> None:
         with _lock:
             payload = {
                 "last_sync": _last_sync,
+                "self_userid": SELF_USERID,
                 "users": dict(_users),
                 "conversations": dict(_conversations),
             }
@@ -190,6 +224,11 @@ def _sync_once() -> None:
             enriched = [_enrich(m, prev_msgs) for m in msgs]
             merged = _merge_messages(enriched, prev_msgs)
             fresh[uid] = _conv_from_msgs(uid, name, merged)
+        if not _SELF_FROM_ENV:
+            inferred = _infer_self_userid(fresh) or _infer_self_userid(prev_convs)
+            if inferred:
+                _set_self_userid(inferred, "dm-infer")
+                fresh.pop(inferred, None)
         with _lock:
             _users.clear()
             _users.update(users)
@@ -290,6 +329,7 @@ def _do_send(userid: str, content: str) -> dict:
         conv["last_preview"] = content
         conv["has_messages"] = True
     _save_cache()
+
     # delayed refresh so API has time to index; merge keeps pending if still missing
     def _later() -> None:
         time.sleep(2.0)
@@ -317,7 +357,7 @@ def _refresh_one(userid: str) -> None:
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
-        print("[%s] %s" % (self.log_date_time_string(), fmt % args))
+        print(f"[{self.log_date_time_string()}] {fmt % args}")
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
