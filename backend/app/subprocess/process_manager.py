@@ -21,6 +21,7 @@ import logging
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import psutil
 
@@ -31,6 +32,9 @@ from .account_manager import Account
 logger = logging.getLogger(__name__)
 
 _WORKER_SCRIPT = "poll_worker.py"
+
+# Rotate the per-account log once it grows past this size, keeping one backup.
+_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 class AccountProcessManager:
@@ -49,6 +53,11 @@ class AccountProcessManager:
 
         settings.logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = settings.logs_dir / f"{account.id}.log"
+        # Rotate HERE (in the parent, which owns the fd) before opening. The
+        # child used to rename the file it inherited via stdout, which silently
+        # kept writing into the renamed backup. Doing it in the parent means the
+        # fd we hand to the child always points at a fresh file.
+        self._rotate_log(log_path)
         logfile = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 - kept open for process lifetime
 
         script_path = settings.project_root / "backend" / "scripts" / _WORKER_SCRIPT
@@ -173,6 +182,23 @@ class AccountProcessManager:
             except Exception:
                 logger.exception("Failed to kill orphan poll worker pid=%s", root.pid)
         return killed
+
+    @staticmethod
+    def _rotate_log(log_path: Path) -> None:
+        """Rotate ``log_path`` to ``log_path.1`` if it exceeds the size cap.
+
+        Called from the parent process (the fd owner) right before reopening,
+        so the child always inherits a fresh file. Best-effort: never raises.
+        """
+        try:
+            if not log_path.exists() or log_path.stat().st_size <= _LOG_MAX_BYTES:
+                return
+            backup = log_path.with_suffix(".log.1")
+            if backup.exists():
+                backup.unlink()
+            log_path.rename(backup)
+        except OSError:
+            pass
 
     @staticmethod
     def _iter_matching_processes() -> list[psutil.Process]:

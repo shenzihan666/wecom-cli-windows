@@ -23,7 +23,6 @@ from pathlib import Path
 # backend/scripts/poll_worker.py -> parents[1] == backend/ (so `import app.*` works)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import settings  # noqa: E402
 from app.core.runtime_settings import get_ai_settings  # noqa: E402
 from app.db import database  # noqa: E402
 from app.services.auto_reply_service import AutoReplyService  # noqa: E402
@@ -36,23 +35,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("poll_worker")
 
-# Rotate the per-account log file once it grows past this size, keeping one
-# backup. Cheap (one rename per boot at most) and stops unbounded growth.
-_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-
-
-def _rotate_log_if_needed(account_id: str) -> None:
-    log_path = settings.logs_dir / f"{account_id}.log"
-    try:
-        if log_path.exists() and log_path.stat().st_size > _LOG_MAX_BYTES:
-            backup = log_path.with_suffix(".log.1")
-            # Remove a stale backup first so rename is atomic on both platforms.
-            if backup.exists():
-                backup.unlink()
-            log_path.rename(backup)
-    except OSError:
-        # Rotation is best-effort; never block worker startup on it.
-        pass
+# Log rotation is handled by the parent process (AccountProcessManager) right
+# before (re)opening the log file and spawning this worker. The parent owns the
+# file descriptor, so only it can rotate safely — renaming the inherited fd in
+# the child would silently keep writing into the renamed backup.
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,8 +59,6 @@ def main() -> None:
         config_dir=args.config_dir or None,
         self_userid=args.self_userid or "",
     )
-
-    _rotate_log_if_needed(account.id)
 
     database.connect()
     svc = SyncService(account)

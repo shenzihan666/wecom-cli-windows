@@ -31,15 +31,31 @@ def _rpc_env(config_dir: str | Path | None) -> dict[str, str] | None:
     return env
 
 
-def rpc(args: list[str], config_dir: str | Path | None = None) -> dict:
+# A single wecom-cli call should return well within this. Without a timeout a
+# hung/weird wecom-cli process freezes the entire account worker forever (the
+# surrounding try/except only catches exceptions, not indefinite hangs).
+_DEFAULT_RPC_TIMEOUT = 30.0
+
+
+def rpc(
+    args: list[str],
+    config_dir: str | Path | None = None,
+    *,
+    timeout: float = _DEFAULT_RPC_TIMEOUT,
+) -> dict:
     """Run a wecom-cli MCP command and return the parsed inner JSON payload."""
     # encoding=utf-8: Windows default locale (cp936) corrupts CLI JSON with CJK names
-    out = subprocess.check_output(
-        [wecom_cli(), *args],
-        encoding="utf-8",
-        stderr=subprocess.STDOUT,
-        env=_rpc_env(config_dir),
-    )
+    try:
+        out = subprocess.check_output(
+            [wecom_cli(), *args],
+            encoding="utf-8",
+            stderr=subprocess.STDOUT,
+            env=_rpc_env(config_dir),
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        cmd_summary = " ".join(args[:2])
+        raise RuntimeError(f"wecom-cli timed out after {timeout}s ({cmd_summary})") from e
     outer = json.loads(out)
     if outer.get("result", {}).get("isError"):
         raise RuntimeError(out)

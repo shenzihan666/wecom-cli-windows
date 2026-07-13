@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from ..ai import AIClient, message_content, message_inbound_key
+from ..core.circuit_breaker import breaker_registry
 from ..core.runtime_settings import AiSettings, get_ai_settings
 from ..db import blacklist_repository, reply_cursor_repository
 from .sync_service import SyncService
@@ -14,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 # Cap work per poll cycle so one busy account cannot stall forever.
 _MAX_REPLIES_PER_CYCLE = 3
+
+# When the AI server is failing, back off so we don't burn credits / time every
+# poll cycle. Three consecutive failures opens the circuit for two minutes.
+_AI_BREAKER_THRESHOLD = 3
+_AI_BREAKER_COOLDOWN = 120.0
 
 
 class AutoReplyService:
@@ -39,11 +46,36 @@ class AutoReplyService:
 
         self_userid, conversations = self._sync.snapshot_conversations()
         if not self_userid:
-            logger.debug("[%s] auto-reply skipped: self_userid unknown", self._account_id)
+            # Without self_userid we cannot tell inbound from outbound, so we
+            # would risk replying to our own messages. Warn loudly — this is a
+            # silent-failure mode that otherwise looks like "auto-reply does
+            # nothing". Fix by setting self_userid on the account or sending one
+            # outbound DM so it can be inferred.
+            logger.warning(
+                "[%s] auto-reply inactive: self_userid unknown. "
+                "Set it on the account (UI/DB) or send one outbound DM so it "
+                "can be auto-detected.",
+                self._account_id,
+            )
             return 0
 
         candidates = self._find_unreplied(conversations, self_userid)
         if not candidates:
+            return 0
+
+        # Short-circuit the whole cycle if the AI server is known-down.
+        ai_breaker = breaker_registry.get(
+            f"ai_{self._account_id}",
+            threshold=_AI_BREAKER_THRESHOLD,
+            cooldown_sec=_AI_BREAKER_COOLDOWN,
+        )
+        if ai_breaker.is_open:
+            logger.warning(
+                "[%s] auto-reply skipped: AI circuit open (%d failures, retrying in %.0fs)",
+                self._account_id,
+                ai_breaker._failures,  # noqa: SLF001
+                ai_breaker.cooldown_sec - (time.monotonic() - ai_breaker._opened_at),  # noqa: SLF001
+            )
             return 0
 
         client = AIClient(
@@ -80,7 +112,9 @@ class AutoReplyService:
             )
             if not reply:
                 logger.warning("[%s] no AI reply for peer=%s", self._account_id, peer)
+                ai_breaker.record_failure()
                 continue
+            ai_breaker.record_success()
 
             if client.is_human_request(reply):
                 logger.info(
@@ -97,17 +131,26 @@ class AutoReplyService:
                 logger.info("[%s] blacklisted before send peer=%s", self._account_id, peer)
                 continue
 
+            # --- Duplicate-reply guard (P0) ----------------------------------
+            # Claim the inbound message BEFORE sending. If the process crashes
+            # anywhere after this point (during send, or between send-success
+            # and any later bookkeeping), the cursor is already persisted, so
+            # on restart we will NOT re-reply. The trade-off: if send fails we
+            # intentionally drop this reply (the customer is not bothered), and
+            # the next inbound message from them resumes normally.
+            reply_cursor_repository.set(self._account_id, peer, inbound_key)
+
             result = self._sync.do_send(peer, reply)
             if not result.get("ok"):
                 logger.error(
-                    "[%s] send failed peer=%s err=%s",
+                    "[%s] send failed peer=%s err=%s (cursor already advanced; "
+                    "will resume on next inbound message)",
                     self._account_id,
                     peer,
                     result.get("error"),
                 )
                 continue
 
-            reply_cursor_repository.set(self._account_id, peer, inbound_key)
             sent += 1
             logger.info("[%s] auto-replied peer=%s", self._account_id, peer)
 

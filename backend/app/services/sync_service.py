@@ -432,7 +432,11 @@ class SyncService:
         content = (content or "").strip()
         if not userid or not content:
             return {"ok": False, "error": "userid and content required"}
-        data = send_text(userid, content, chat_type=1, config_dir=self._config_dir)
+        try:
+            data = send_text(userid, content, chat_type=1, config_dir=self._config_dir)
+        except Exception as e:
+            logger.exception("[%s] send_text failed for %s", self.account.id, userid)
+            return {"ok": False, "error": f"send_text: {e}"}
         if data.get("errcode") not in (0, None):
             return {"ok": False, "error": data.get("errmsg") or str(data), "raw": data}
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
