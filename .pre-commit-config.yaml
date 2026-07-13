@@ -1,0 +1,68 @@
+# Git hooks for this repo (managed by the pre-commit framework).
+# Setup:   uv sync && uv run pre-commit install --install-hooks
+# Manual:  uv run pre-commit run --all-files
+#
+# Installs pre-commit (format/lint/secrets), commit-msg (Conventional Commits),
+# and pre-push (test suite) hooks. pre-commit runs staged files only.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  # --- General hygiene (fast, no external toolchain) -----------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+
+  # --- Python format + lint (staged files only, with fixes) ----------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # --- Secrets scan --------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+
+  # --- Conventional Commits (commit-msg stage) -----------------------------
+  # Allows merge / revert / fixup!/squash! messages by design.
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - feat
+          - fix
+          - docs
+          - style
+          - refactor
+          - test
+          - chore
+          - perf
+          - ci
+          - build
+          - revert
+
+  # --- Test suite on push (kept fast; CI runs the full suite too) ----------
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (pre-push)
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
