@@ -19,6 +19,8 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=1024"]
+        # Bundled ffmpeg/ffprobe binaries are intentionally vendored in-repo.
+        exclude: ^ffmpeg/.*\.exe$
       - id: detect-private-key
 
   # --- Python format + lint (staged files only, with fixes) ----------------
