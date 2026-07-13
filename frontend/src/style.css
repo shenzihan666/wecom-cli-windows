@@ -1,0 +1,31 @@
+:root {
+  --bg: #0f1419;
+  --panel: #1a222c;
+  --panel2: #232d3a;
+  --border: #2e3a48;
+  --text: #e7ecf1;
+  --muted: #8b9aab;
+  --accent: #3d8bfd;
+  --mine: #1e4d8c;
+  --theirs: #2a3441;
+  --danger: #e35d6a;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "IBM Plex Sans", "Source Han Sans SC", "Noto Sans SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}

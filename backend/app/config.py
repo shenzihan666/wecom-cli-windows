@@ -43,8 +43,17 @@ class Settings(BaseSettings):
         return self.project_root / "static"
 
     @property
+    def frontend_dist(self) -> Path:
+        """Built Vue 3 + Element Plus SPA (produced by `vp build` in frontend/)."""
+        return self.project_root / "frontend" / "dist"
+
+    @property
     def cache_path(self) -> Path:
         return self.data_dir / "cache.json"
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "wecom.db"
 
 
 def _build_settings() -> Settings:

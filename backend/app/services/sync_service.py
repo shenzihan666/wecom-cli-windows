@@ -13,9 +13,11 @@ import traceback
 from collections import Counter
 from datetime import datetime
 
+from ..config import settings
 from ..core import media as media_core
 from ..core.rpc import time_window
 from ..core.wecom_api import get_messages, get_userlist, preview_text, send_text
+from ..db import AccountRepository
 from ..subprocess import DEFAULT_ACCOUNT, Account
 
 
@@ -102,6 +104,7 @@ class SyncService:
         self._self_from_config = (self.account.self_userid or "").strip()
         self.self_userid = self._self_from_config
 
+        self._repo = AccountRepository()
         self._poll_thread: threading.Thread | None = None
         self._stop = threading.Event()
 
@@ -118,48 +121,72 @@ class SyncService:
         name = self._users.get(uid) or uid
         print(f"[{self.account.id}] self_userid={uid} ({name}) via {reason}")
 
-    # ---- cache ------------------------------------------------------------- #
-    def load_cache(self) -> None:
-        path = self.account.cache_path
+    # ---- persistence (SQLite) --------------------------------------------- #
+    def _migrate_legacy_cache(self) -> None:
+        """One-shot import of the old JSON cache into SQLite (default account)."""
+        if self.account.id != "default":
+            return
+        path = settings.cache_path
         if not path.is_file():
             return
         try:
             data = json.loads(path.read_text("utf-8"))
+            self._repo.save(
+                self.account.id,
+                self_userid=(data.get("self_userid") or "").strip(),
+                last_sync=data.get("last_sync"),
+                users=data.get("users") or {},
+                conversations=data.get("conversations") or {},
+            )
+            print(f"[{self.account.id}] migrated legacy cache.json -> sqlite")
+        except Exception:
+            traceback.print_exc()
+
+    def load_state(self) -> None:
+        try:
+            if not self._repo.has_data(self.account.id):
+                self._migrate_legacy_cache()
+            snap = self._repo.load(self.account.id)
+            if not snap:
+                return
             with self._lock:
                 self._users.clear()
-                self._users.update(data.get("users") or {})
+                self._users.update(snap["users"])
                 self._conversations.clear()
-                self._conversations.update(data.get("conversations") or {})
-                self._last_sync = data.get("last_sync")
+                for uid, conv in snap["conversations"].items():
+                    self._conversations[uid] = conv_from_msgs(
+                        uid, conv.get("name") or uid, conv.get("messages") or []
+                    )
+                self._last_sync = snap["last_sync"]
                 if not self._self_from_config:
-                    cached_self = (data.get("self_userid") or "").strip()
-                    if cached_self:
-                        self._set_self_userid(cached_self, "cache")
+                    stored_self = (snap["self_userid"] or "").strip()
+                    if stored_self:
+                        self._set_self_userid(stored_self, "db")
                     else:
                         inferred = infer_self_userid(self._conversations)
                         if inferred:
-                            self._set_self_userid(inferred, "cache-infer")
+                            self._set_self_userid(inferred, "db-infer")
             print(
-                f"[{self.account.id}] loaded cache: {len(self._conversations)} "
+                f"[{self.account.id}] loaded state: {len(self._conversations)} "
                 f"conversations (last_sync={self._last_sync})"
             )
         except Exception:
             traceback.print_exc()
 
-    def save_cache(self) -> None:
-        path = self.account.cache_path
+    def save_state(self) -> None:
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
             with self._lock:
-                payload = {
-                    "last_sync": self._last_sync,
-                    "self_userid": self.self_userid,
-                    "users": dict(self._users),
-                    "conversations": dict(self._conversations),
-                }
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload, ensure_ascii=False), "utf-8")
-            tmp.replace(path)
+                users = dict(self._users)
+                conversations = {k: dict(v) for k, v in self._conversations.items()}
+                self_userid = self.self_userid
+                last_sync = self._last_sync
+            self._repo.save(
+                self.account.id,
+                self_userid=self_userid,
+                last_sync=last_sync,
+                users=users,
+                conversations=conversations,
+            )
         except Exception:
             traceback.print_exc()
 
@@ -241,7 +268,7 @@ class SyncService:
                 self._conversations.update(fresh)
                 self._last_sync = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._error = None
-            self.save_cache()
+            self.save_state()
         except Exception as e:
             with self._lock:
                 self._error = str(e)
@@ -265,7 +292,7 @@ class SyncService:
             merged = merge_messages(enriched, prev_msgs, self.self_userid)
             with self._lock:
                 self._conversations[userid] = conv_from_msgs(userid, name, merged)
-            self.save_cache()
+            self.save_state()
         except Exception:
             traceback.print_exc()
 
@@ -375,7 +402,7 @@ class SyncService:
             conv["last_time"] = now
             conv["last_preview"] = content
             conv["has_messages"] = True
-        self.save_cache()
+        self.save_state()
 
         # delayed refresh so API has time to index; merge keeps pending if still missing
         def _later() -> None:

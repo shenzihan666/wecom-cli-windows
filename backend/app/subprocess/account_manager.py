@@ -1,15 +1,15 @@
 """Account registry for routing wecom-cli calls to the right credential sandbox.
 
 Today: a single default account (ambient wecom-cli config).
-Later: multiple accounts, each with its own ``config_dir``, cache file and —
-eventually — a dedicated long-lived wecom-cli worker process.
+Later: multiple accounts, each with its own ``config_dir`` (SQLite rows are
+keyed by ``account_id``) and — eventually — a dedicated long-lived wecom-cli
+worker process.
 """
 
 from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 
 from ..config import settings
 
@@ -23,12 +23,6 @@ class Account:
     config_dir: str | None = None
     # Explicit self userid override; empty means auto-detect from DM senders.
     self_userid: str = ""
-
-    @property
-    def cache_path(self) -> Path:
-        if self.id == "default":
-            return settings.cache_path
-        return settings.data_dir / f"cache_{self.id}.json"
 
 
 DEFAULT_ACCOUNT = Account(

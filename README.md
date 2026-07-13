@@ -1,6 +1,6 @@
 # wecom_CLI_TEST
 
-Local **WeCom DM sync** web UI on top of [`wecom-cli`](https://github.com/WecomTeam/wecom-cli). Left: private-chat list. Right: thread + text send. Background poll keeps cache close to live (not true push).
+Local **WeCom DM sync** web UI on top of [`wecom-cli`](https://github.com/WecomTeam/wecom-cli). Left: private-chat list. Right: thread + text send. Background poll keeps a SQLite-backed cache close to live (not true push).
 
 ## Requirements
 
@@ -62,12 +62,15 @@ FastAPI backend, layered top → bottom:
 ```
 api        -> HTTP presentation (FastAPI routers, pydantic schemas)
 subprocess -> per-account wecom-cli context (multi-account seam; single default account today)
-services   -> business logic (sync loop, disk cache, conversation state, send)
+services   -> business logic (sync loop, conversation state, send)
 core       -> thin wecom-cli JSON-RPC + media download/convert
+db         -> SQLite persistence (per-account snapshot: meta/users/conversations/messages)
 ```
 
 Each core call accepts an optional `config_dir`, so the `subprocess` layer can
-later route requests to per-account wecom-cli credential sandboxes.
+later route requests to per-account wecom-cli credential sandboxes. Persistence
+lives in `data/wecom.db`, keyed by `account_id`; on first run an existing
+`data/cache.json` is imported automatically.
 
 ## Layout
 
@@ -83,12 +86,12 @@ later route requests to per-account wecom-cli credential sandboxes.
 │   │   ├── schemas/            # pydantic models
 │   │   ├── services/           # sync engine + per-account registry
 │   │   ├── subprocess/         # account manager (multi-account foundation)
+│   │   ├── db/                 # SQLite connection + repository
 │   │   └── core/               # wecom-cli RPC + media helpers
 │   └── tests/test_merge.py     # assert-based merge self-check
 ├── static/index.html           # single-page chat UI
-├── data/cache.json             # runtime cache (gitignored)
-├── media/                      # downloaded/converted media (gitignored)
-└── server.py, wecom_rpc.py …   # legacy experimental scripts (superseded)
+├── data/wecom.db               # SQLite store (gitignored)
+└── media/                      # downloaded/converted media (gitignored)
 ```
 
 ## Env
@@ -101,15 +104,18 @@ later route requests to per-account wecom-cli credential sandboxes.
 | `WECOM_WEB_PORT` | `8765` | Bind port |
 | `WECOM_CLI_CONFIG_DIR` | `~/.config/wecom` | Isolate multi-sandbox credentials |
 
-Example: `WECOM_POLL_SEC=10 SELF_USERID=YourId python3 server.py`
+Example: `WECOM_POLL_SEC=10 SELF_USERID=YourId uv run python backend/run.py`
 
 ## API (local)
+
+All `/api/*` endpoints accept an optional `?account=` (defaults to `default`).
 
 - `GET /api/conversations` — DM list (+ empty contacts)
 - `GET /api/messages?userid=` — thread from cache
 - `POST /api/send` — `{ "userid", "content" }` text only
 - `GET /api/status` — sync health
 - `GET /media/<file>` — media (supports `Range`)
+- `GET /docs` — interactive OpenAPI docs
 
 ## Limits (WeCom / wecom-cli)
 
@@ -127,5 +133,5 @@ Point each environment at its own config dir:
 
 ```bash
 export WECOM_CLI_CONFIG_DIR=/path/sandbox-a/wecom-config
-wecom-cli init && python3 server.py
+wecom-cli init && uv run python backend/run.py
 ```
