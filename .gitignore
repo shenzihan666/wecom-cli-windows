@@ -1,0 +1,17 @@
+# Secrets / local WeCom state
+data/
+media/
+*.enc
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
