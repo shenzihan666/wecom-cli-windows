@@ -13,6 +13,7 @@ Usage (spawned by the parent, not meant to be run manually):
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -22,9 +23,17 @@ from pathlib import Path
 # backend/scripts/poll_worker.py -> parents[1] == backend/ (so `import app.*` works)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.runtime_settings import get_ai_settings  # noqa: E402
 from app.db import database  # noqa: E402
+from app.services.auto_reply_service import AutoReplyService  # noqa: E402
 from app.services.sync_service import SyncService  # noqa: E402
 from app.subprocess import Account  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("poll_worker")
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,6 +70,14 @@ def main() -> None:
             svc.sync_once()
         except Exception:
             traceback.print_exc()
+
+        try:
+            ai_settings = get_ai_settings()
+            if ai_settings.enabled:
+                AutoReplyService(svc, ai_settings).process_once()
+        except Exception:
+            logger.exception("[%s] auto-reply cycle failed", account.id)
+
         time.sleep(args.poll_sec)
 
 

@@ -60,11 +60,45 @@ export interface AccountsResponse {
 }
 
 export interface AccountCreateRequest {
-  name: string;
+  name?: string;
   config_dir?: string | null;
   self_userid?: string;
 }
 
 export interface SettingsResponse {
   poll_sec: number;
+  ai_enabled: boolean;
+  ai_server_url: string;
+  ai_timeout_sec: number;
+  ai_system_prompt: string;
+  ai_reply_max_length: number;
+  ai_history_limit: number;
+}
+
+export interface SettingsUpdateRequest {
+  poll_sec: number;
+  ai_enabled: boolean;
+  ai_server_url: string;
+  ai_timeout_sec: number;
+  ai_system_prompt: string;
+  ai_reply_max_length: number;
+  ai_history_limit: number;
+}
+
+export interface BlacklistItem {
+  account_id: string;
+  userid: string;
+  name: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface BlacklistResponse {
+  items: BlacklistItem[];
+}
+
+export interface BlacklistAddRequest {
+  userid: string;
+  name?: string;
+  reason?: string;
 }

@@ -52,16 +52,11 @@ async function toggleForm(): Promise<void> {
 }
 
 async function onSubmitAdd(): Promise<void> {
-  const name = formName.value.trim();
-  if (!name) {
-    formError.value = "请填写账号名称";
-    return;
-  }
   submitting.value = true;
   formError.value = "";
   try {
     await createAccount({
-      name,
+      name: formName.value.trim() || undefined,
       config_dir: formConfigDir.value.trim() || null,
       self_userid: formSelfUserid.value.trim() || undefined,
     });
@@ -134,8 +129,12 @@ onUnmounted(() => {
       <div v-if="showAddForm" class="card animate-fade-in space-y-3 p-5">
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="space-y-1">
-            <label class="text-xs text-wecom-muted">账号名称 *</label>
-            <input v-model="formName" class="input-field w-full" placeholder="例如：客服小王" />
+            <label class="text-xs text-wecom-muted">账号名称（可选）</label>
+            <input
+              v-model="formName"
+              class="input-field w-full"
+              placeholder="留空则同步后自动填入企微姓名"
+            />
           </div>
           <div class="space-y-1">
             <label class="text-xs text-wecom-muted">self_userid（可选覆盖）</label>

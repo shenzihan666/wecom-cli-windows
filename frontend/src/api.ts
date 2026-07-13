@@ -2,10 +2,14 @@ import type {
   Account,
   AccountCreateRequest,
   AccountsResponse,
+  BlacklistAddRequest,
+  BlacklistItem,
+  BlacklistResponse,
   ConversationsResponse,
   MessagesResponse,
   SendResponse,
   SettingsResponse,
+  SettingsUpdateRequest,
 } from "./types";
 
 async function getJson<T>(path: string): Promise<T> {
@@ -85,11 +89,42 @@ export function fetchSettings(): Promise<SettingsResponse> {
   return getJson<SettingsResponse>("/api/settings");
 }
 
-export async function updateSettings(pollSec: number): Promise<SettingsResponse> {
+export async function updateSettings(body: SettingsUpdateRequest): Promise<SettingsResponse> {
   const res = await fetch("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ poll_sec: pollSec }),
+    body: JSON.stringify(body),
   });
-  return (await res.json()) as SettingsResponse;
+  const data = (await res.json()) as SettingsResponse | { detail?: string };
+  if (!res.ok) {
+    throw new Error((data as { detail?: string }).detail ?? "save failed");
+  }
+  return data as SettingsResponse;
+}
+
+export function fetchBlacklist(accountId: string): Promise<BlacklistResponse> {
+  return getJson<BlacklistResponse>(
+    `/api/blacklist?account=${encodeURIComponent(accountId)}`,
+  );
+}
+
+export function addBlacklist(
+  accountId: string,
+  body: BlacklistAddRequest,
+): Promise<BlacklistItem> {
+  return postJson<BlacklistItem>(
+    `/api/blacklist?account=${encodeURIComponent(accountId)}`,
+    body,
+  );
+}
+
+export async function removeBlacklist(accountId: string, userid: string): Promise<void> {
+  const res = await fetch(
+    `/api/blacklist/${encodeURIComponent(userid)}?account=${encodeURIComponent(accountId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(body?.detail ?? "remove failed");
+  }
 }

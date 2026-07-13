@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS blacklist (
+    account_id TEXT NOT NULL,
+    userid     TEXT NOT NULL,
+    name       TEXT,
+    reason     TEXT,
+    created_at TEXT,
+    PRIMARY KEY (account_id, userid)
+);
+
+CREATE TABLE IF NOT EXISTS reply_cursors (
+    account_id        TEXT NOT NULL,
+    peer              TEXT NOT NULL,
+    last_inbound_key  TEXT NOT NULL,
+    replied_at        TEXT,
+    PRIMARY KEY (account_id, peer)
+);
 """
 
 

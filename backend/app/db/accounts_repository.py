@@ -68,6 +68,28 @@ class AccountsRepository:
                 ),
             )
 
+    def get_account(self, account_id: str) -> AccountRow | None:
+        conn = self._db.connect()
+        with self._db.lock:
+            row = conn.execute(
+                "SELECT id, name, config_dir, self_userid, enabled FROM accounts WHERE id = ?",
+                (account_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return AccountRow(
+            id=row["id"],
+            name=row["name"],
+            config_dir=row["config_dir"],
+            self_userid=row["self_userid"] or "",
+            enabled=bool(row["enabled"]),
+        )
+
+    def set_name(self, account_id: str, name: str) -> None:
+        conn = self._db.connect()
+        with self._db.lock:
+            conn.execute("UPDATE accounts SET name = ? WHERE id = ?", (name, account_id))
+
     def set_enabled(self, account_id: str, enabled: bool) -> None:
         conn = self._db.connect()
         with self._db.lock:

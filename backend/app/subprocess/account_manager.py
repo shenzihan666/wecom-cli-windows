@@ -65,14 +65,31 @@ class AccountManager:
                 self_userid=row["self_userid"],
             )
 
+    def _reload(self) -> None:
+        """Refresh in-memory cache from SQLite (name may be updated by poll workers)."""
+        rows = accounts_repository.list_accounts()
+        if not rows:
+            return
+        self._accounts = {
+            row["id"]: Account(
+                id=row["id"],
+                name=row["name"],
+                config_dir=row["config_dir"],
+                self_userid=row["self_userid"],
+            )
+            for row in rows
+        }
+
     def get(self, account_id: str = "default") -> Account:
         with self._lock:
+            self._reload()
             if account_id not in self._accounts:
                 raise KeyError(f"unknown account: {account_id}")
             return self._accounts[account_id]
 
     def list(self) -> list[Account]:
         with self._lock:
+            self._reload()
             return list(self._accounts.values())
 
     def is_enabled(self, account_id: str) -> bool:

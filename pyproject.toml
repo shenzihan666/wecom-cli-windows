@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "psutil>=6.0",
+    "httpx>=0.28",
 ]
 
 [tool.uv]

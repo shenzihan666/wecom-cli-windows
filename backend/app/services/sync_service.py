@@ -23,8 +23,11 @@ from ..config import settings
 from ..core import media as media_core
 from ..core.rpc import time_window
 from ..core.wecom_api import get_messages, get_userlist, preview_text, send_text
-from ..db import AccountRepository
+from ..db import AccountRepository, accounts_repository
 from ..subprocess import DEFAULT_ACCOUNT, Account
+
+# Names that mean "not set yet" — safe to replace with WeCom display name.
+_PLACEHOLDER_NAMES = frozenset({"", "default", "未命名"})
 
 
 # --------------------------------------------------------------------------- #
@@ -117,13 +120,35 @@ class SyncService:
     def _config_dir(self) -> str | None:
         return self.account.config_dir
 
-    # ---- self userid ------------------------------------------------------- #
+    # ---- self userid / display name ---------------------------------------- #
     def _set_self_userid(self, uid: str, reason: str) -> None:
         if not uid or uid == self.self_userid:
             return
         self.self_userid = uid
         name = self._users.get(uid) or uid
         print(f"[{self.account.id}] self_userid={uid} ({name}) via {reason}")
+
+    def _sync_account_display_name(self, users: dict[str, str]) -> None:
+        """Fill accounts.name from contact list once self_userid is known.
+
+        Only replaces placeholder names (empty / default / 未命名 / account id)
+        so an explicitly chosen label at create time is kept.
+        """
+        uid = (self.self_userid or "").strip()
+        if not uid:
+            return
+        display = (users.get(uid) or "").strip()
+        if not display or display == uid:
+            return
+        row = accounts_repository.get_account(self.account.id)
+        current = (row["name"] if row else self.account.name) or ""
+        current = current.strip()
+        if current and current not in _PLACEHOLDER_NAMES and current != self.account.id:
+            return
+        if current == display:
+            return
+        accounts_repository.set_name(self.account.id, display)
+        print(f"[{self.account.id}] account name -> {display!r} (from contacts)")
 
     # ---- persistence (SQLite) --------------------------------------------- #
     def _migrate_legacy_cache(self) -> None:
@@ -283,6 +308,7 @@ class SyncService:
                 if inferred:
                     self._set_self_userid(inferred, "dm-infer")
                     fresh.pop(inferred, None)
+            self._sync_account_display_name(users)
             with self._lock:
                 self._users.clear()
                 self._users.update(users)
@@ -317,6 +343,21 @@ class SyncService:
             self.save_state()
         except Exception:
             traceback.print_exc()
+
+    def snapshot_conversations(self) -> tuple[str, dict[str, dict]]:
+        """Return ``(self_userid, conversations)`` snapshot for auto-reply."""
+        with self._lock:
+            snap: dict[str, dict] = {}
+            for uid, conv in self._conversations.items():
+                snap[uid] = {
+                    "userid": conv.get("userid") or uid,
+                    "name": conv.get("name") or uid,
+                    "messages": list(conv.get("messages") or []),
+                    "last_time": conv.get("last_time") or "",
+                    "last_preview": conv.get("last_preview") or "",
+                    "has_messages": bool(conv.get("has_messages")),
+                }
+            return self.self_userid, snap
 
     # ---- read APIs --------------------------------------------------------- #
     def conversations_list(self) -> dict:

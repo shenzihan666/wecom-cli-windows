@@ -69,14 +69,44 @@ class AccountsResponse(BaseModel):
 
 
 class AccountCreateRequest(BaseModel):
-    name: str
+    name: str = ""  # optional; empty → auto-fill from contacts after sync
     config_dir: str | None = None
     self_userid: str = ""
 
 
 class SettingsResponse(BaseModel):
     poll_sec: float = 5.0
+    ai_enabled: bool = False
+    ai_server_url: str = "http://localhost:8080"
+    ai_timeout_sec: float = 15.0
+    ai_system_prompt: str = ""
+    ai_reply_max_length: int = 50
+    ai_history_limit: int = 30
 
 
 class SettingsUpdateRequest(BaseModel):
     poll_sec: float
+    ai_enabled: bool = False
+    ai_server_url: str = "http://localhost:8080"
+    ai_timeout_sec: float = 15.0
+    ai_system_prompt: str = ""
+    ai_reply_max_length: int = 50
+    ai_history_limit: int = 30
+
+
+class BlacklistItem(BaseModel):
+    account_id: str
+    userid: str
+    name: str = ""
+    reason: str = ""
+    created_at: str = ""
+
+
+class BlacklistResponse(BaseModel):
+    items: list[BlacklistItem] = Field(default_factory=list)
+
+
+class BlacklistAddRequest(BaseModel):
+    userid: str
+    name: str = ""
+    reason: str = ""
