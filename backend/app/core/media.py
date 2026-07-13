@@ -30,6 +30,15 @@ def _tool_bin(name: str) -> str:
     return cmd
 
 
+def tool_exists(name: str) -> bool:
+    """True if the media tool is available (vendored or on PATH). Used for startup checks."""
+    for base in (settings.project_root / "ffmpeg", settings.project_root / "bin"):
+        for candidate in (base / name, base / f"{name}.exe"):
+            if candidate.is_file():
+                return True
+    return shutil.which(name) is not None
+
+
 def _amr_to_mp3(amr_path: Path) -> Path | None:
     """Convert AMR to MP3 for browser playback. Returns mp3 path or None."""
     mp3 = amr_path.with_suffix(".mp3")

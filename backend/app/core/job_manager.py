@@ -1,35 +1,129 @@
-"""Windows Job Objects: real process pause/resume.
+"""Cross-platform process pause/resume manager.
 
-Ported from the wecom-cua-windows reference project's device manager (which
-uses this to pause/resume Android automation subprocesses). Windows has no
-SIGSTOP/SIGCONT, so "pause" is implemented by walking every process in a Job
-Object and calling ``NtSuspendProcess``/``NtResumeProcess`` on each -- the
-process tree freezes in place (no state lost) instead of being killed.
+On **Windows** there is no ``SIGSTOP``/``SIGCONT``, so "pause" is implemented
+via Job Objects: every process in the job is suspended with
+``NtSuspendProcess`` / ``NtResumeProcess`` -- the process tree freezes in place
+(no state lost) instead of being killed.
+
+On **Unix** (macOS/Linux) the native ``SIGSTOP`` / ``SIGCONT`` signals give us
+the same semantics with far less ceremony: we walk the process tree with
+``psutil`` and send the signal to every descendant.
+
+``get_job_manager()`` returns the right implementation for the current platform.
+Both expose the same interface (``create_job`` / ``add_process`` /
+``suspend_job`` / ``resume_job`` / ``terminate_job`` / ``is_suspended``).
 """
 
 from __future__ import annotations
 
-import ctypes
 import logging
+import signal
+import sys
 
 logger = logging.getLogger(__name__)
 
-PROCESS_ALL_ACCESS = 0x1F0FFF
-PROCESS_SUSPEND_RESUME = 0x0800
 
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+class _UnixJobManager:
+    """Tracks one process tree per account id; suspends/resumes via SIGSTOP/SIGCONT."""
+
+    def __init__(self) -> None:
+        self._pids: dict[str, int] = {}
+        self._suspended: dict[str, bool] = {}
+
+    def create_job(self, account_id: str) -> None:
+        # No persistent kernel object needed on Unix; just reset bookkeeping.
+        self._suspended[account_id] = False
+        return None
+
+    def add_process(self, account_id: str, pid: int) -> bool:
+        self._pids[account_id] = pid
+        return True
+
+    def _tree_pids(self, account_id: str) -> list[int]:
+        import psutil
+
+        pid = self._pids.get(account_id)
+        if pid is None:
+            return []
+        pids = [pid]
+        try:
+            proc = psutil.Process(pid)
+            pids.extend(child.pid for child in proc.children(recursive=True))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        return pids
+
+    def suspend_job(self, account_id: str) -> bool:
+        if self._suspended.get(account_id):
+            return True
+        ok = True
+        for pid in self._tree_pids(account_id):
+            try:
+                # SIGSTOP can't be caught/ignored, so the process halts immediately.
+                import os
+
+                os.kill(pid, signal.SIGSTOP)
+            except ProcessLookupError:
+                continue
+            except Exception:
+                logger.exception("Failed to SIGSTOP pid=%s", pid)
+                ok = False
+        if ok:
+            self._suspended[account_id] = True
+        return ok
+
+    def resume_job(self, account_id: str) -> bool:
+        if not self._suspended.get(account_id):
+            return True
+        ok = True
+        for pid in self._tree_pids(account_id):
+            try:
+                import os
+
+                os.kill(pid, signal.SIGCONT)
+            except ProcessLookupError:
+                continue
+            except Exception:
+                logger.exception("Failed to SIGCONT pid=%s", pid)
+                ok = False
+        if ok:
+            self._suspended[account_id] = False
+        return ok
+
+    def terminate_job(self, account_id: str) -> bool:
+        # Actual killing is handled by process_manager's _kill_tree (psutil).
+        self._pids.pop(account_id, None)
+        self._suspended.pop(account_id, None)
+        return True
+
+    def is_suspended(self, account_id: str) -> bool:
+        return self._suspended.get(account_id, False)
 
 
-class WindowsJobManager:
-    """Tracks one Job Object per account id; suspends/resumes its process tree."""
+class _WindowsJobManager:
+    """Tracks one Job Object per account id; suspends/resumes its process tree.
+
+    All Win32 ctypes imports are deferred to method bodies so this module can be
+    imported on non-Windows platforms without raising ``OSError`` from
+    ``ctypes.WinDLL``.
+    """
 
     def __init__(self) -> None:
         self._jobs: dict[str, int] = {}
         self._processes: dict[str, int] = {}
         self._suspended: dict[str, bool] = {}
 
+    def _load(self):
+        import ctypes
+
+        PROCESS_ALL_ACCESS = 0x1F0FFF
+        PROCESS_SUSPEND_RESUME = 0x0800
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+        return ctypes, kernel32, ntdll, PROCESS_ALL_ACCESS, PROCESS_SUSPEND_RESUME
+
     def create_job(self, account_id: str) -> int | None:
+        ctypes, kernel32, *_ = self._load()
         job_handle = kernel32.CreateJobObjectW(None, None)
         if not job_handle:
             logger.error("Failed to create job object: %s", ctypes.get_last_error())
@@ -39,6 +133,7 @@ class WindowsJobManager:
         return job_handle
 
     def add_process(self, account_id: str, pid: int) -> bool:
+        ctypes, kernel32, _, PROCESS_ALL_ACCESS, _ = self._load()
         job_handle = self._jobs.get(account_id)
         if job_handle is None:
             logger.error("No job object for %s", account_id)
@@ -90,6 +185,7 @@ class WindowsJobManager:
             return False
 
     def terminate_job(self, account_id: str) -> bool:
+        ctypes, kernel32, *_ = self._load()
         job_handle = self._jobs.get(account_id)
         if job_handle is None:
             return True
@@ -112,6 +208,7 @@ class WindowsJobManager:
     def _get_job_processes(self, account_id: str) -> list[int]:
         import psutil
 
+        ctypes, kernel32, *_ = self._load()
         process_handle = self._processes.get(account_id)
         if not process_handle:
             return []
@@ -127,6 +224,7 @@ class WindowsJobManager:
             return []
 
     def _suspend_process(self, pid: int) -> bool:
+        ctypes, kernel32, ntdll, _, PROCESS_SUSPEND_RESUME = self._load()
         handle = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME, False, pid)
         if not handle:
             return False
@@ -136,6 +234,7 @@ class WindowsJobManager:
             kernel32.CloseHandle(handle)
 
     def _resume_process(self, pid: int) -> bool:
+        ctypes, kernel32, ntdll, _, PROCESS_SUSPEND_RESUME = self._load()
         handle = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME, False, pid)
         if not handle:
             return False
@@ -145,11 +244,15 @@ class WindowsJobManager:
             kernel32.CloseHandle(handle)
 
 
-_job_manager: WindowsJobManager | None = None
+_job_manager: _UnixJobManager | _WindowsJobManager | None = None
 
 
-def get_job_manager() -> WindowsJobManager:
+def get_job_manager() -> _UnixJobManager | _WindowsJobManager:
+    """Return the platform-appropriate job manager singleton."""
     global _job_manager
     if _job_manager is None:
-        _job_manager = WindowsJobManager()
+        if sys.platform == "win32":
+            _job_manager = _WindowsJobManager()
+        else:
+            _job_manager = _UnixJobManager()
     return _job_manager

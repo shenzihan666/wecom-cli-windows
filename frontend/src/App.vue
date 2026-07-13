@@ -7,6 +7,7 @@ const route = useRoute();
 const navItems = [
   { name: "accounts", path: "/accounts", icon: "🧑‍💼", label: "客服管理" },
   { name: "chat", path: "/chat", icon: "💬", label: "聊天记录" },
+  { name: "logs", path: "/logs", icon: "📋", label: "运行日志" },
   { name: "settings", path: "/settings", icon: "⚙️", label: "设置" },
 ] as const;
 

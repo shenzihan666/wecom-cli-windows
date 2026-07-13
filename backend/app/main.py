@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,12 +10,36 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import router
+from .api import http_router, logs_router
 from .config import settings
+from .core.media import tool_exists
 from .core.runtime_settings import get_poll_sec
 from .db import database
 from .services import service_registry
 from .subprocess import account_manager, account_process_manager
+
+logger = logging.getLogger(__name__)
+
+# Main process logs to console only (per-account workers own the file logs).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
+
+def _check_media_tools() -> None:
+    """Warn (don't fail) if ffmpeg/ffprobe can't be found anywhere.
+
+    Checks the vendored ``ffmpeg/`` + ``bin/`` dirs and PATH. A missing ffmpeg
+    only breaks AMR/audio transcoding, so we keep booting.
+    """
+    missing = [name for name in ("ffmpeg", "ffprobe") if not tool_exists(name)]
+    if missing:
+        logger.warning(
+            "%s not found in ./ffmpeg, ./bin, or PATH. "
+            "Audio/video transcoding will fail. Install ffmpeg to fix this.",
+            ", ".join(missing),
+        )
 
 
 @asynccontextmanager
@@ -23,11 +48,13 @@ async def lifespan(app: FastAPI):
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
 
+    _check_media_tools()
+
     database.connect()
 
     killed = account_process_manager.cleanup_orphans()
     if killed:
-        print(f"Cleaned up {killed} orphaned poll-worker process tree(s)")
+        logger.info("Cleaned up %d orphaned poll-worker process tree(s)", killed)
 
     poll_sec = get_poll_sec()
     for account in account_manager.list():
@@ -36,9 +63,12 @@ async def lifespan(app: FastAPI):
         if account_manager.is_enabled(account.id):
             account_process_manager.start(account, poll_sec)
 
-    print(
-        f"WeCom DM sync: http://{settings.host}:{settings.port}  "
-        f"(accounts={len(account_manager.list())}, poll={poll_sec}s)"
+    logger.info(
+        "WeCom DM sync: http://%s:%s  (accounts=%d, poll=%ss)",
+        settings.host,
+        settings.port,
+        len(account_manager.list()),
+        poll_sec,
     )
     try:
         yield
@@ -56,7 +86,8 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-app.include_router(router)
+app.include_router(http_router)
+app.include_router(logs_router)
 
 # Serve the built Vue 3 + Element Plus SPA from frontend/dist.
 # Run `vp build` inside frontend/ to (re)generate it.

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# backend/app/config.py -> parents[2] == project root (d:\wecom_CLI_TEST)
+# backend/app/config.py -> parents[2] == project root (e.g. ~/wecom_CLI_TEST)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 

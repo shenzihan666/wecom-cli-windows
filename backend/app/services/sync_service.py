@@ -13,9 +13,9 @@ in-process by the API for on-demand reads/sends (no subprocess involved).
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
-import traceback
 from collections import Counter
 from datetime import datetime
 
@@ -28,6 +28,8 @@ from ..subprocess import DEFAULT_ACCOUNT, Account
 
 # Names that mean "not set yet" — safe to replace with WeCom display name.
 _PLACEHOLDER_NAMES = frozenset({"", "default", "未命名"})
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -126,7 +128,7 @@ class SyncService:
             return
         self.self_userid = uid
         name = self._users.get(uid) or uid
-        print(f"[{self.account.id}] self_userid={uid} ({name}) via {reason}")
+        logger.info("[%s] self_userid=%s (%s) via %s", self.account.id, uid, name, reason)
 
     def _sync_account_display_name(self, users: dict[str, str]) -> None:
         """Fill accounts.name from contact list once self_userid is known.
@@ -148,7 +150,7 @@ class SyncService:
         if current == display:
             return
         accounts_repository.set_name(self.account.id, display)
-        print(f"[{self.account.id}] account name -> {display!r} (from contacts)")
+        logger.info("[%s] account name -> %r (from contacts)", self.account.id, display)
 
     # ---- persistence (SQLite) --------------------------------------------- #
     def _migrate_legacy_cache(self) -> None:
@@ -167,9 +169,9 @@ class SyncService:
                 users=data.get("users") or {},
                 conversations=data.get("conversations") or {},
             )
-            print(f"[{self.account.id}] migrated legacy cache.json -> sqlite")
+            logger.info("[%s] migrated legacy cache.json -> sqlite", self.account.id)
         except Exception:
-            traceback.print_exc()
+            logger.exception("[%s] legacy cache migration failed", self.account.id)
 
     def load_state(self, *, verbose: bool = True) -> None:
         try:
@@ -196,12 +198,14 @@ class SyncService:
                         if inferred:
                             self._set_self_userid(inferred, "db-infer")
             if verbose:
-                print(
-                    f"[{self.account.id}] loaded state: {len(self._conversations)} "
-                    f"conversations (last_sync={self._last_sync})"
+                logger.info(
+                    "[%s] loaded state: %d conversations (last_sync=%s)",
+                    self.account.id,
+                    len(self._conversations),
+                    self._last_sync,
                 )
         except Exception:
-            traceback.print_exc()
+            logger.exception("[%s] load_state failed", self.account.id)
 
     def refresh_from_db_if_stale(self) -> None:
         """Cheap DB-freshness check for the in-process reader.
@@ -235,7 +239,7 @@ class SyncService:
                 conversations=conversations,
             )
         except Exception:
-            traceback.print_exc()
+            logger.exception("[%s] save_state failed", self.account.id)
 
     # ---- enrichment -------------------------------------------------------- #
     def _enrich(self, m: dict, prev_msgs: list[dict] | None = None) -> dict:
@@ -320,7 +324,7 @@ class SyncService:
         except Exception as e:
             with self._lock:
                 self._error = str(e)
-                traceback.print_exc()
+            logger.exception("[%s] sync_once failed", self.account.id)
         finally:
             with self._lock:
                 self._syncing = False
@@ -342,7 +346,7 @@ class SyncService:
                 self._conversations[userid] = conv_from_msgs(userid, name, merged)
             self.save_state()
         except Exception:
-            traceback.print_exc()
+            logger.exception("[%s] refresh_one failed for %s", self.account.id, userid)
 
     def snapshot_conversations(self) -> tuple[str, dict[str, dict]]:
         """Return ``(self_userid, conversations)`` snapshot for auto-reply."""

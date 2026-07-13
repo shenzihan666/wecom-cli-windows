@@ -15,3 +15,10 @@ venv/
 *.swp
 .idea/
 .vscode/
+
+# Build artifacts
+frontend/dist/
+frontend/node_modules/
+
+# Local agent session data
+.zcode/

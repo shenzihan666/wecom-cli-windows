@@ -20,11 +20,12 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 
 import psutil
 
 from ..config import settings
-from ..core.windows_job import get_job_manager
+from ..core.job_manager import get_job_manager
 from .account_manager import Account
 
 logger = logging.getLogger(__name__)
@@ -71,14 +72,19 @@ class AccountProcessManager:
 
         try:
             # Plain arg list (no shell): avoids cmd.exe re-quoting the script
-            # path/args, and uv resolves to a real .exe so no shim is needed.
-            process = subprocess.Popen(  # noqa: S603
-                args,
+            # path/args. Windows puts the worker in its own process group so
+            # Ctrl-C/stop is isolated; Unix starts a new session (setsid) for the
+            # same reason and so signal delivery is contained to the tree.
+            popen_kwargs: dict = dict(
                 cwd=str(settings.project_root),
                 stdout=logfile,
                 stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_kwargs["start_new_session"] = True
+            process = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
         except Exception:
             logger.exception("Failed to start poll worker for %s", account.id)
             logfile.close()
@@ -116,16 +122,16 @@ class AccountProcessManager:
         if process.poll() is not None:
             return True  # already exited
 
+        # Kill the whole process tree via psutil (cross-platform: terminate then
+        # SIGKILL/kill on survivors). Replaces the old Windows-only `taskkill`.
         try:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
-                capture_output=True,
-                timeout=5.0,
-            )
+            self._kill_tree(psutil.Process(process.pid))
+        except psutil.NoSuchProcess:
+            pass
         except Exception:
-            logger.exception("taskkill failed for account %s (pid=%s)", account_id, process.pid)
+            logger.exception("kill tree failed for account %s (pid=%s)", account_id, process.pid)
             try:
-                process.terminate()
+                process.kill()
             except Exception:
                 pass
         return True

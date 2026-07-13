@@ -12,6 +12,8 @@ export default defineConfig({
     proxy: {
       "/api": { target: BACKEND, changeOrigin: true },
       "/media": { target: BACKEND, changeOrigin: true },
+      // WebSocket live-log endpoint (dev only; prod is same-origin).
+      "/ws": { target: BACKEND, changeOrigin: true, ws: true },
     },
   },
   fmt: {},
