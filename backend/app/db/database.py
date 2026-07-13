@@ -1,7 +1,10 @@
 """SQLite connection manager.
 
-A single connection guarded by a lock is plenty for this workload (a 5s poll
-plus occasional request threads). WAL mode keeps reads non-blocking.
+One connection per process, guarded by a lock for in-process (thread) safety.
+Each account's poll-worker subprocess opens its own connection to the same
+file, so cross-process write contention is handled by SQLite itself: WAL mode
+keeps reads non-blocking, and ``busy_timeout`` makes concurrent writers wait
+briefly instead of failing immediately.
 """
 
 from __future__ import annotations
@@ -45,6 +48,20 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_acct_peer ON messages (account_id, peer, id);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    config_dir  TEXT,
+    self_userid TEXT,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 
@@ -69,6 +86,11 @@ class Database:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL;")
             self._conn.execute("PRAGMA foreign_keys=ON;")
+            # Each account's poll-worker subprocess now writes to this same
+            # file from its own connection/process; give concurrent writers
+            # a chance to wait instead of failing immediately with
+            # "database is locked".
+            self._conn.execute("PRAGMA busy_timeout=5000;")
             self._conn.executescript(_SCHEMA)
         return self._conn
 

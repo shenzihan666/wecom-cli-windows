@@ -52,3 +52,31 @@ class SendResponse(BaseModel):
     message: dict[str, Any] | None = None
     error: str | None = None
     raw: dict[str, Any] | None = None
+
+
+class AccountItem(BaseModel):
+    id: str
+    name: str
+    config_dir: str | None = None
+    self_userid: str = ""
+    last_sync: str | None = None
+    state: str = "stopped"  # "stopped" | "running" | "paused"
+    error: str | None = None
+
+
+class AccountsResponse(BaseModel):
+    accounts: list[AccountItem] = Field(default_factory=list)
+
+
+class AccountCreateRequest(BaseModel):
+    name: str
+    config_dir: str | None = None
+    self_userid: str = ""
+
+
+class SettingsResponse(BaseModel):
+    poll_sec: float = 5.0
+
+
+class SettingsUpdateRequest(BaseModel):
+    poll_sec: float

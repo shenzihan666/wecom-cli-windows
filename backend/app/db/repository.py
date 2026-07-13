@@ -130,3 +130,17 @@ class AccountRepository:
         with self._db.lock:
             row = conn.execute("SELECT 1 FROM meta WHERE account_id = ?", (account_id,)).fetchone()
         return row is not None
+
+    def get_last_sync(self, account_id: str) -> str | None:
+        """Cheap freshness check: just the ``last_sync`` column from ``meta``.
+
+        Used by the in-process reader (API process) to know whether the
+        poll-worker subprocess has written newer data since the last load,
+        without paying for a full conversations/messages reload every time.
+        """
+        conn = self._db.connect()
+        with self._db.lock:
+            row = conn.execute(
+                "SELECT last_sync FROM meta WHERE account_id = ?", (account_id,)
+            ).fetchone()
+        return row["last_sync"] if row is not None else None

@@ -1,7 +1,13 @@
-"""Per-account DM sync engine: poll loop, disk cache, conversation state, send.
+"""Per-account DM sync engine: one sync pass, disk cache, conversation state, send.
 
 Ported from the original experimental ``server.py`` module globals into a
 single account-scoped object so multiple accounts can run concurrently.
+
+The recurring poll loop itself no longer lives here -- it runs inside a
+dedicated subprocess per account (``backend/scripts/poll_worker.py``,
+orchestrated by ``AccountProcessManager``), which repeatedly instantiates a
+``SyncService`` and calls ``sync_once()``. This class is also instantiated
+in-process by the API for on-demand reads/sends (no subprocess involved).
 """
 
 from __future__ import annotations
@@ -105,8 +111,6 @@ class SyncService:
         self.self_userid = self._self_from_config
 
         self._repo = AccountRepository()
-        self._poll_thread: threading.Thread | None = None
-        self._stop = threading.Event()
 
     # ---- config passthrough ------------------------------------------------ #
     @property
@@ -142,7 +146,7 @@ class SyncService:
         except Exception:
             traceback.print_exc()
 
-    def load_state(self) -> None:
+    def load_state(self, *, verbose: bool = True) -> None:
         try:
             if not self._repo.has_data(self.account.id):
                 self._migrate_legacy_cache()
@@ -166,12 +170,30 @@ class SyncService:
                         inferred = infer_self_userid(self._conversations)
                         if inferred:
                             self._set_self_userid(inferred, "db-infer")
-            print(
-                f"[{self.account.id}] loaded state: {len(self._conversations)} "
-                f"conversations (last_sync={self._last_sync})"
-            )
+            if verbose:
+                print(
+                    f"[{self.account.id}] loaded state: {len(self._conversations)} "
+                    f"conversations (last_sync={self._last_sync})"
+                )
         except Exception:
             traceback.print_exc()
+
+    def refresh_from_db_if_stale(self) -> None:
+        """Cheap DB-freshness check for the in-process reader.
+
+        The poll-worker subprocess is the one calling ``sync_once()`` now; it
+        writes to SQLite, not to this process's memory. Read APIs call this
+        first so they pick up new data without paying for a full reload on
+        every request when nothing changed.
+        """
+        try:
+            db_last_sync = self._repo.get_last_sync(self.account.id)
+        except Exception:
+            return
+        with self._lock:
+            unchanged = db_last_sync == self._last_sync
+        if not unchanged:
+            self.load_state(verbose=False)
 
     def save_state(self) -> None:
         try:
@@ -296,27 +318,9 @@ class SyncService:
         except Exception:
             traceback.print_exc()
 
-    # ---- poll loop --------------------------------------------------------- #
-    def start_polling(self, poll_sec: float) -> None:
-        if self._poll_thread and self._poll_thread.is_alive():
-            return
-        self._stop.clear()
-
-        def _loop() -> None:
-            while not self._stop.is_set():
-                self.sync_once()
-                self._stop.wait(poll_sec)
-
-        self._poll_thread = threading.Thread(
-            target=_loop, name=f"poll-{self.account.id}", daemon=True
-        )
-        self._poll_thread.start()
-
-    def stop_polling(self) -> None:
-        self._stop.set()
-
     # ---- read APIs --------------------------------------------------------- #
     def conversations_list(self) -> dict:
+        self.refresh_from_db_if_stale()
         with self._lock:
             items = list(self._conversations.values())
             sync = self._last_sync
@@ -344,6 +348,7 @@ class SyncService:
         }
 
     def messages_for(self, userid: str) -> dict:
+        self.refresh_from_db_if_stale()
         with self._lock:
             conv = self._conversations.get(userid)
             users = dict(self._users)
@@ -366,6 +371,7 @@ class SyncService:
         }
 
     def status(self, poll_sec: float) -> dict:
+        self.refresh_from_db_if_stale()
         with self._lock:
             return {
                 "account_id": self.account.id,

@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "psutil>=6.0",
 ]
 
 [tool.uv]

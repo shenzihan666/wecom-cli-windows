@@ -3,7 +3,7 @@
     "target": "es2023",
     "module": "esnext",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "element-plus/global"],
+    "types": ["vite/client"],
     "jsx": "preserve",
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,

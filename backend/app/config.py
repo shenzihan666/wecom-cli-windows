@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         return self.project_root / "data"
 
     @property
+    def logs_dir(self) -> Path:
+        return self.data_dir / "logs"
+
+    @property
     def static_dir(self) -> Path:
         return self.project_root / "static"
 

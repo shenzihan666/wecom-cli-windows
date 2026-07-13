@@ -26,5 +26,9 @@ class ServiceRegistry:
         with self._lock:
             return list(self._services.values())
 
+    def remove(self, account_id: str) -> None:
+        with self._lock:
+            self._services.pop(account_id, None)
+
 
 service_registry = ServiceRegistry()

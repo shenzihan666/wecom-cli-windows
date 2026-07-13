@@ -32,25 +32,27 @@ const when = computed(() => {
 </script>
 
 <template>
-  <div class="bubble-row" :class="{ mine }">
-    <div class="bubble" :class="mine ? 'mine' : 'theirs'">
+  <div class="flex" :class="mine ? 'justify-end' : ''">
+    <div
+      class="max-w-[min(70%,480px)] whitespace-pre-wrap break-words rounded-[10px] px-3 py-2 text-sm leading-[1.45]"
+      :class="
+        mine
+          ? 'rounded-br-[3px] bg-wecom-accent/30 text-wecom-text'
+          : 'rounded-bl-[3px] bg-wecom-surface text-wecom-text'
+      "
+    >
       <template v-if="msgtype === 'text'">{{ textContent }}</template>
 
-      <el-image
-        v-else-if="msgtype === 'image' && fileSrc"
-        :src="fileSrc"
-        :preview-src-list="[fileSrc]"
-        fit="contain"
-        hide-on-click-modal
-        preview-teleported
-        class="bubble-image"
-      />
+      <a v-else-if="msgtype === 'image' && fileSrc" :href="fileSrc" target="_blank" rel="noopener">
+        <img :src="fileSrc" class="block max-w-full rounded-md" alt="图片消息" />
+      </a>
 
       <audio
         v-else-if="msgtype === 'voice' && fileSrc"
         controls
         preload="metadata"
         :src="fileSrc"
+        class="mt-1 block h-9 w-[min(280px,100%)]"
       />
 
       <video
@@ -59,78 +61,22 @@ const when = computed(() => {
         preload="metadata"
         playsinline
         :src="fileSrc"
+        class="mt-1 block max-h-[360px] max-w-[min(320px,100%)] rounded-md bg-black"
       />
 
-      <a v-else-if="fileSrc" :href="fileSrc" target="_blank" rel="noopener">
+      <a
+        v-else-if="fileSrc"
+        :href="fileSrc"
+        target="_blank"
+        rel="noopener"
+        class="text-wecom-accent"
+      >
         [{{ msgtype }}] 下载
       </a>
 
       <template v-else>[{{ msgtype }}]</template>
 
-      <div class="when">{{ when }}</div>
+      <div class="mt-1.5 whitespace-normal text-[0.65rem] text-wecom-muted">{{ when }}</div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.bubble-row {
-  display: flex;
-}
-
-.bubble-row.mine {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: min(70%, 480px);
-  padding: 0.55rem 0.75rem;
-  border-radius: 10px;
-  font-size: 0.9rem;
-  line-height: 1.45;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.bubble.mine {
-  background: var(--mine);
-  border-bottom-right-radius: 3px;
-}
-
-.bubble.theirs {
-  background: var(--theirs);
-  border-bottom-left-radius: 3px;
-}
-
-.bubble .when {
-  font-size: 0.65rem;
-  color: var(--muted);
-  margin-top: 0.35rem;
-  white-space: normal;
-}
-
-.bubble-image {
-  max-width: 100%;
-  border-radius: 6px;
-  display: block;
-}
-
-.bubble audio {
-  display: block;
-  width: min(280px, 100%);
-  height: 36px;
-  margin-top: 0.15rem;
-}
-
-.bubble video {
-  display: block;
-  max-width: min(320px, 100%);
-  max-height: 360px;
-  border-radius: 6px;
-  margin-top: 0.15rem;
-  background: #000;
-}
-
-.bubble a {
-  color: #9ec1ff;
-}
-</style>

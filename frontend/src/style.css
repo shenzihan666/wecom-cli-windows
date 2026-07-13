@@ -1,15 +1,8 @@
-:root {
-  --bg: #0f1419;
-  --panel: #1a222c;
-  --panel2: #232d3a;
-  --border: #2e3a48;
-  --text: #e7ecf1;
-  --muted: #8b9aab;
-  --accent: #3d8bfd;
-  --mine: #1e4d8c;
-  --theirs: #2a3441;
-  --danger: #e35d6a;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+:root {
   color-scheme: dark;
 }
 
@@ -25,7 +18,72 @@ body,
 }
 
 body {
-  font-family: "IBM Plex Sans", "Source Han Sans SC", "Noto Sans SC", sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+::selection {
+  background: rgba(26, 173, 25, 0.3);
+}
+
+.btn-primary {
+  @apply rounded-lg bg-wecom-primary px-4 py-2 font-medium text-white transition-all duration-200 hover:bg-wecom-secondary disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply rounded-lg border border-wecom-border bg-wecom-surface px-4 py-2 font-medium text-wecom-text transition-all duration-200 hover:bg-wecom-border disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-danger {
+  @apply rounded-lg bg-red-600 px-4 py-2 font-medium text-white transition-all duration-200 hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.input-field {
+  @apply rounded-lg border border-wecom-border bg-wecom-surface px-3 py-2 text-wecom-text placeholder-wecom-muted transition-colors focus:border-wecom-primary focus:outline-none;
+}
+
+.card {
+  @apply rounded-xl border border-wecom-border bg-wecom-surface;
+}
+
+.card-hover {
+  transition: all 0.2s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.status-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }

@@ -42,3 +42,29 @@ export interface SendResponse {
   error: string | null;
   raw: Record<string, unknown> | null;
 }
+
+export type AccountState = "stopped" | "running" | "paused";
+
+export interface Account {
+  id: string;
+  name: string;
+  config_dir: string | null;
+  self_userid: string;
+  last_sync: string | null;
+  state: AccountState;
+  error: string | null;
+}
+
+export interface AccountsResponse {
+  accounts: Account[];
+}
+
+export interface AccountCreateRequest {
+  name: string;
+  config_dir?: string | null;
+  self_userid?: string;
+}
+
+export interface SettingsResponse {
+  poll_sec: number;
+}

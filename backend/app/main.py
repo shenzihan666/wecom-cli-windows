@@ -11,28 +11,39 @@ from fastapi.staticfiles import StaticFiles
 
 from .api import router
 from .config import settings
+from .core.runtime_settings import get_poll_sec
 from .db import database
 from .services import service_registry
+from .subprocess import account_manager, account_process_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.media_dir.mkdir(parents=True, exist_ok=True)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.logs_dir.mkdir(parents=True, exist_ok=True)
 
     database.connect()
-    svc = service_registry.get("default")
-    svc.load_state()
-    svc.start_polling(settings.poll_sec)
+
+    killed = account_process_manager.cleanup_orphans()
+    if killed:
+        print(f"Cleaned up {killed} orphaned poll-worker process tree(s)")
+
+    poll_sec = get_poll_sec()
+    for account in account_manager.list():
+        svc = service_registry.get(account.id)
+        svc.load_state()
+        if account_manager.is_enabled(account.id):
+            account_process_manager.start(account, poll_sec)
+
     print(
         f"WeCom DM sync: http://{settings.host}:{settings.port}  "
-        f"(self={svc.self_userid or 'auto'}, poll={settings.poll_sec}s)"
+        f"(accounts={len(account_manager.list())}, poll={poll_sec}s)"
     )
     try:
         yield
     finally:
-        for s in service_registry.all():
-            s.stop_polling()
+        account_process_manager.stop_all()
         database.close()
 
 
