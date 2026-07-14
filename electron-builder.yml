@@ -1,0 +1,43 @@
+# electron-builder configuration — reserved for future distribution.
+#
+# Today the app is NOT self-contained: it requires the host machine to have
+# `uv`, Python 3.11+, `wecom-cli` and (optionally) ffmpeg on PATH. This file
+# only packages the Electron shell + the prebuilt frontend/dist.
+#
+# Future path to a double-click app: build the Python backend with PyInstaller
+# into `backend-dist/`, then point backend-manager at that binary instead of
+# `uv run python backend/run.py`. The rest of this config stays the same.
+
+appId: com.wecom.dmsync
+productName: WeCom 私聊同步
+# Root package.json `main` points at dist-electron/main.js after tsc.
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist-electron/**
+  - frontend/dist/**
+  - package.json
+  # NOTE: backend/, ffmpeg/, data/, media/ are NOT bundled yet (host deps).
+
+# Keep the backend source available so a future PyInstaller step can run,
+# but excluded from the shipped payload until we go self-contained.
+extraResources: []
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.business
+  hardenedRuntime: false
+
+win:
+  target:
+    - nsis
+  # icon: build/icon.ico  # add a 256x256 .ico under build/ before packaging
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

@@ -1,0 +1,8 @@
+# pnpm settings for the root Electron project.
+#
+# `allowBuilds` (pnpm 11) allowlists packages whose postinstall scripts may
+# run during install. `electron` needs this to download its platform binary;
+# without it pnpm aborts the install with ERR_PNPM_IGNORED_BUILDS, which would
+# break `pnpm electron:dev` since pnpm runs an install check first.
+allowBuilds:
+  electron: true
