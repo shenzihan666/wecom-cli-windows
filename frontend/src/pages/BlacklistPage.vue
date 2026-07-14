@@ -18,6 +18,7 @@ const accountId = ref<string>("");
 
 const convPayload = ref<ConversationsResponse | null>(null);
 const blacklist = ref<BlacklistItem[]>([]);
+const searchQuery = ref("");
 
 const loading = ref(false);
 const errorMsg = ref("");
@@ -25,6 +26,13 @@ const toggling = ref<Record<string, boolean>>({});
 
 const conversations = computed(() => convPayload.value?.conversations ?? []);
 const blacklistUserids = computed(() => new Set(blacklist.value.map((i) => i.userid)));
+const filteredConversations = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return conversations.value;
+  return conversations.value.filter(
+    (c) => c.name.toLowerCase().includes(q) || c.userid.toLowerCase().includes(q),
+  );
+});
 
 function isBlacklisted(userid: string): boolean {
   return blacklistUserids.value.has(userid);
@@ -135,6 +143,13 @@ onMounted(async () => {
       >
         <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
       </select>
+      <input
+        v-model="searchQuery"
+        type="text"
+        class="input-field max-w-[240px] py-1.5 text-sm"
+        placeholder="按名字或 userid 搜索…"
+        autocomplete="off"
+      />
       <span v-if="loading" class="text-xs text-wecom-muted">加载中…</span>
       <span v-if="errorMsg" class="text-xs text-red-400">{{ errorMsg }}</span>
     </header>
@@ -146,10 +161,13 @@ onMounted(async () => {
       <p v-else-if="!conversations.length" class="p-6 text-center text-sm text-wecom-muted">
         暂无联系人，请先启动账号同步。
       </p>
+      <p v-else-if="!filteredConversations.length" class="p-6 text-center text-sm text-wecom-muted">
+        没有匹配「{{ searchQuery }}」的联系人。
+      </p>
 
       <ul v-else class="divide-y divide-wecom-border/40">
         <li
-          v-for="c in conversations"
+          v-for="c in filteredConversations"
           :key="c.userid"
           class="flex items-center justify-between gap-3 px-4 py-3 transition-colors"
           :class="
