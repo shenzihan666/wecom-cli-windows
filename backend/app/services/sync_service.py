@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 from collections import Counter
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from ..config import settings
@@ -30,6 +31,11 @@ from ..subprocess import DEFAULT_ACCOUNT, Account
 _PLACEHOLDER_NAMES = frozenset({"", "default", "未命名"})
 
 logger = logging.getLogger(__name__)
+
+ConversationUpdateHandler = Callable[
+    [dict[str, dict], dict[str, dict], str | None],
+    None,
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -103,8 +109,14 @@ def conv_from_msgs(userid: str, name: str, msgs: list[dict]) -> dict:
 # Account-scoped sync engine
 # --------------------------------------------------------------------------- #
 class SyncService:
-    def __init__(self, account: Account | None = None) -> None:
+    def __init__(
+        self,
+        account: Account | None = None,
+        *,
+        update_handlers: Iterable[ConversationUpdateHandler] | None = None,
+    ) -> None:
         self.account = account or DEFAULT_ACCOUNT
+        self._update_handlers = tuple(update_handlers or ())
         self._lock = threading.RLock()
         self._conversations: dict[str, dict] = {}
         self._users: dict[str, str] = {}
@@ -279,6 +291,23 @@ class SyncService:
         out[mt] = obj
         return out
 
+    def _notify_conversation_update(
+        self,
+        previous: dict[str, dict],
+        current: dict[str, dict],
+        baseline_time: str | None,
+    ) -> None:
+        """Notify independent post-sync policies without coupling them to sync."""
+        for handler in self._update_handlers:
+            try:
+                handler(previous, current, baseline_time)
+            except Exception:
+                logger.exception(
+                    "[%s] conversation update handler failed: %r",
+                    self.account.id,
+                    handler,
+                )
+
     # ---- sync -------------------------------------------------------------- #
     def sync_once(self) -> None:
         with self._lock:
@@ -286,6 +315,7 @@ class SyncService:
                 return
             self._syncing = True
             prev_convs = {k: dict(v) for k, v in self._conversations.items()}
+            baseline_time = self._last_sync
         try:
             begin, end = time_window()
             users_raw = get_userlist(config_dir=self._config_dir)
@@ -313,6 +343,7 @@ class SyncService:
                     self._set_self_userid(inferred, "dm-infer")
                     fresh.pop(inferred, None)
             self._sync_account_display_name(users)
+            self._notify_conversation_update(prev_convs, fresh, baseline_time)
             with self._lock:
                 self._users.clear()
                 self._users.update(users)
@@ -339,11 +370,19 @@ class SyncService:
                     or (self._conversations.get(userid) or {}).get("name")
                     or userid
                 )
-                prev_msgs = list((self._conversations.get(userid) or {}).get("messages") or [])
+                prev_conv = self._conversations.get(userid)
+                prev_msgs = list((prev_conv or {}).get("messages") or [])
+                baseline_time = self._last_sync
             enriched = [self._enrich(m, prev_msgs) for m in msgs]
             merged = merge_messages(enriched, prev_msgs, self.self_userid)
+            fresh_conv = conv_from_msgs(userid, name, merged)
+            self._notify_conversation_update(
+                {userid: prev_conv} if prev_conv is not None else {},
+                {userid: fresh_conv},
+                baseline_time,
+            )
             with self._lock:
-                self._conversations[userid] = conv_from_msgs(userid, name, merged)
+                self._conversations[userid] = fresh_conv
             self.save_state()
         except Exception:
             logger.exception("[%s] refresh_one failed for %s", self.account.id, userid)

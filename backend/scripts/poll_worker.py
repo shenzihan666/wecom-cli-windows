@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.runtime_settings import get_ai_settings  # noqa: E402
 from app.db import database  # noqa: E402
 from app.services.auto_reply_service import AutoReplyService  # noqa: E402
+from app.services.media_blacklist_service import MediaBlacklistService  # noqa: E402
 from app.services.sync_service import SyncService  # noqa: E402
 from app.subprocess import Account  # noqa: E402
 
@@ -61,7 +62,8 @@ def main() -> None:
     )
 
     database.connect()
-    svc = SyncService(account)
+    media_blacklist = MediaBlacklistService(account.id)
+    svc = SyncService(account, update_handlers=[media_blacklist.process])
     svc.load_state()
 
     logger.info(

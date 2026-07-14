@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 from ..subprocess import account_manager
+from .media_blacklist_service import MediaBlacklistService
 from .sync_service import SyncService
 
 
@@ -18,7 +19,8 @@ class ServiceRegistry:
             svc = self._services.get(account_id)
             if svc is None:
                 account = account_manager.get(account_id)
-                svc = SyncService(account)
+                media_blacklist = MediaBlacklistService(account.id)
+                svc = SyncService(account, update_handlers=[media_blacklist.process])
                 self._services[account_id] = svc
             return svc
 

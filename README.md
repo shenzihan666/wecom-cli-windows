@@ -1,6 +1,6 @@
 # wecom_CLI_TEST
 
-Local **WeCom DM sync** web UI on top of [`wecom-cli`](https://github.com/WecomTeam/wecom-cli). Left: private-chat list. Right: thread + text send. Background poll keeps a SQLite-backed cache close to live (not true push).
+Local **WeCom DM sync** web UI on top of [`wecom-cli`](https://github.com/WecomTeam/wecom-cli). Left: private-chat list. Right: thread + text send. Background poll keeps a SQLite-backed cache close to live (not true push). After the initial sync baseline, a newly received image or video automatically adds its sender to the account blacklist.
 
 ## Requirements
 
@@ -62,7 +62,7 @@ FastAPI backend, layered top → bottom:
 ```
 api        -> HTTP presentation (FastAPI routers, pydantic schemas)
 subprocess -> per-account wecom-cli context (multi-account seam; single default account today)
-services   -> business logic (sync loop, conversation state, send)
+services   -> business logic (sync, media-blacklist policy, auto-reply, send)
 core       -> thin wecom-cli JSON-RPC + media download/convert
 db         -> SQLite persistence (per-account snapshot: meta/users/conversations/messages)
 ```
@@ -71,6 +71,12 @@ Each core call accepts an optional `config_dir`, so the `subprocess` layer can
 later route requests to per-account wecom-cli credential sandboxes. Persistence
 lives in `data/wecom.db`, keyed by `account_id`; on first run an existing
 `data/cache.json` is imported automatically.
+
+`SyncService` publishes conversation-update callbacks after each successful
+refresh. `MediaBlacklistService` consumes those updates independently, detects
+new inbound images/videos, and writes the sender to the existing per-account
+blacklist. The first sync establishes a baseline and does not blacklist users
+for historical media already in the fetch window.
 
 ## Layout
 
@@ -84,11 +90,11 @@ lives in `data/wecom.db`, keyed by `account_id`; on first run an existing
 │   │   ├── config.py           # env-based settings
 │   │   ├── api/                # routers + deps (HTTP layer)
 │   │   ├── schemas/            # pydantic models
-│   │   ├── services/           # sync engine + per-account registry
+│   │   ├── services/           # sync, media blacklist, auto-reply, registry
 │   │   ├── subprocess/         # account manager (multi-account foundation)
 │   │   ├── db/                 # SQLite connection + repository
 │   │   └── core/               # wecom-cli RPC + media helpers
-│   └── tests/test_merge.py     # assert-based merge self-check
+│   └── tests/                  # sync, auto-reply, and media-policy tests
 ├── static/index.html           # single-page chat UI
 ├── data/wecom.db               # SQLite store (gitignored)
 └── media/                      # downloaded/converted media (gitignored)
