@@ -99,7 +99,8 @@ class AutoReplyService:
             if not latest_text:
                 continue
 
-            history = (conv.get("messages") or [])[-self._settings.history_limit :]
+            # Send the full conversation history to the AI server (no truncation).
+            history = conv.get("messages") or []
             customer_name = conv.get("name") or peer
 
             reply = client.generate_reply(

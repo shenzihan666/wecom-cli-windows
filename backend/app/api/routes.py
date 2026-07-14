@@ -41,7 +41,6 @@ def _settings_payload() -> dict:
         "ai_timeout_sec": ai.timeout_sec,
         "ai_system_prompt": ai.system_prompt,
         "ai_reply_max_length": ai.reply_max_length,
-        "ai_history_limit": ai.history_limit,
     }
 
 
@@ -177,8 +176,6 @@ def update_settings(body: SettingsUpdateRequest) -> dict:
         raise HTTPException(status_code=400, detail="ai_timeout_sec must be positive")
     if body.ai_reply_max_length <= 0:
         raise HTTPException(status_code=400, detail="ai_reply_max_length must be positive")
-    if body.ai_history_limit <= 0:
-        raise HTTPException(status_code=400, detail="ai_history_limit must be positive")
 
     prev_poll = get_poll_sec()
     set_poll_sec(body.poll_sec)
@@ -188,7 +185,6 @@ def update_settings(body: SettingsUpdateRequest) -> dict:
         timeout_sec=body.ai_timeout_sec,
         system_prompt=body.ai_system_prompt,
         reply_max_length=body.ai_reply_max_length,
-        history_limit=body.ai_history_limit,
     )
 
     # Restart running workers only when poll interval changes.

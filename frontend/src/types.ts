@@ -72,7 +72,6 @@ export interface SettingsResponse {
   ai_timeout_sec: number;
   ai_system_prompt: string;
   ai_reply_max_length: number;
-  ai_history_limit: number;
 }
 
 export interface SettingsUpdateRequest {
@@ -82,7 +81,6 @@ export interface SettingsUpdateRequest {
   ai_timeout_sec: number;
   ai_system_prompt: string;
   ai_reply_max_length: number;
-  ai_history_limit: number;
 }
 
 export interface BlacklistItem {

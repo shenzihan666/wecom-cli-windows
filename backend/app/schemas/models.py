@@ -81,7 +81,6 @@ class SettingsResponse(BaseModel):
     ai_timeout_sec: float = 15.0
     ai_system_prompt: str = ""
     ai_reply_max_length: int = 50
-    ai_history_limit: int = 30
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -91,7 +90,6 @@ class SettingsUpdateRequest(BaseModel):
     ai_timeout_sec: float = 15.0
     ai_system_prompt: str = ""
     ai_reply_max_length: int = 50
-    ai_history_limit: int = 30
 
 
 class BlacklistItem(BaseModel):

@@ -18,12 +18,10 @@ _AI_SERVER_URL_KEY = "ai_server_url"
 _AI_TIMEOUT_SEC_KEY = "ai_timeout_sec"
 _AI_SYSTEM_PROMPT_KEY = "ai_system_prompt"
 _AI_REPLY_MAX_LENGTH_KEY = "ai_reply_max_length"
-_AI_HISTORY_LIMIT_KEY = "ai_history_limit"
 
 _DEFAULT_AI_SERVER_URL = "http://localhost:8080"
 _DEFAULT_AI_TIMEOUT_SEC = 15.0
 _DEFAULT_AI_REPLY_MAX_LENGTH = 50
-_DEFAULT_AI_HISTORY_LIMIT = 30
 
 
 @dataclass(frozen=True)
@@ -33,7 +31,6 @@ class AiSettings:
     timeout_sec: float = _DEFAULT_AI_TIMEOUT_SEC
     system_prompt: str = ""
     reply_max_length: int = _DEFAULT_AI_REPLY_MAX_LENGTH
-    history_limit: int = _DEFAULT_AI_HISTORY_LIMIT
 
 
 def get_poll_sec() -> float:
@@ -90,10 +87,6 @@ def get_ai_settings() -> AiSettings:
             accounts_repository.get_setting(_AI_REPLY_MAX_LENGTH_KEY),
             _DEFAULT_AI_REPLY_MAX_LENGTH,
         ),
-        history_limit=_as_int(
-            accounts_repository.get_setting(_AI_HISTORY_LIMIT_KEY),
-            _DEFAULT_AI_HISTORY_LIMIT,
-        ),
     )
 
 
@@ -104,7 +97,6 @@ def set_ai_settings(
     timeout_sec: float,
     system_prompt: str,
     reply_max_length: int,
-    history_limit: int,
 ) -> AiSettings:
     url = (server_url or "").strip() or _DEFAULT_AI_SERVER_URL
     accounts_repository.set_setting(_AI_ENABLED_KEY, "true" if enabled else "false")
@@ -112,5 +104,4 @@ def set_ai_settings(
     accounts_repository.set_setting(_AI_TIMEOUT_SEC_KEY, str(timeout_sec))
     accounts_repository.set_setting(_AI_SYSTEM_PROMPT_KEY, system_prompt or "")
     accounts_repository.set_setting(_AI_REPLY_MAX_LENGTH_KEY, str(int(reply_max_length)))
-    accounts_repository.set_setting(_AI_HISTORY_LIMIT_KEY, str(int(history_limit)))
     return get_ai_settings()

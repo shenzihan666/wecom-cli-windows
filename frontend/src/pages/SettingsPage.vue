@@ -8,7 +8,6 @@ const aiServerUrl = ref("http://localhost:8080");
 const aiTimeoutSec = ref(15);
 const aiSystemPrompt = ref("");
 const aiReplyMaxLength = ref(50);
-const aiHistoryLimit = ref(30);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -25,7 +24,6 @@ async function loadSettings(): Promise<void> {
     aiTimeoutSec.value = data.ai_timeout_sec;
     aiSystemPrompt.value = data.ai_system_prompt;
     aiReplyMaxLength.value = data.ai_reply_max_length;
-    aiHistoryLimit.value = data.ai_history_limit;
   } catch (err) {
     errorMsg.value = String(err);
   } finally {
@@ -48,10 +46,6 @@ async function onSave(): Promise<void> {
     errorMsg.value = "回复最大长度必须为正数";
     return;
   }
-  if (!Number.isFinite(aiHistoryLimit.value) || aiHistoryLimit.value <= 0) {
-    errorMsg.value = "历史条数必须为正数";
-    return;
-  }
   saving.value = true;
   try {
     const data = await updateSettings({
@@ -61,7 +55,6 @@ async function onSave(): Promise<void> {
       ai_timeout_sec: aiTimeoutSec.value,
       ai_system_prompt: aiSystemPrompt.value,
       ai_reply_max_length: aiReplyMaxLength.value,
-      ai_history_limit: aiHistoryLimit.value,
     });
     pollSec.value = data.poll_sec;
     aiEnabled.value = data.ai_enabled;
@@ -69,7 +62,6 @@ async function onSave(): Promise<void> {
     aiTimeoutSec.value = data.ai_timeout_sec;
     aiSystemPrompt.value = data.ai_system_prompt;
     aiReplyMaxLength.value = data.ai_reply_max_length;
-    aiHistoryLimit.value = data.ai_history_limit;
     savedMsg.value = "已保存。AI 配置立即生效；若修改了轮询间隔，运行中的账号会自动重启。";
   } catch (err) {
     errorMsg.value = String(err);
@@ -147,17 +139,6 @@ onMounted(async () => {
             <label class="text-sm font-medium text-wecom-text">回复最大长度</label>
             <input
               v-model.number="aiReplyMaxLength"
-              type="number"
-              min="1"
-              step="1"
-              class="input-field w-28"
-              :disabled="loading"
-            />
-          </div>
-          <div class="space-y-1">
-            <label class="text-sm font-medium text-wecom-text">历史消息条数</label>
-            <input
-              v-model.number="aiHistoryLimit"
               type="number"
               min="1"
               step="1"
