@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import("./pages/ChatPage.vue"),
     },
     {
+      path: "/blacklist",
+      name: "blacklist",
+      component: () => import("./pages/BlacklistPage.vue"),
+    },
+    {
       path: "/settings",
       name: "settings",
       component: () => import("./pages/SettingsPage.vue"),
