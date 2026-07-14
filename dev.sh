@@ -39,4 +39,15 @@ echo "Backend PID=${BACKEND_PID}, Frontend PID=${FRONTEND_PID}"
 echo "Press Ctrl-C to stop both."
 
 # Wait for either to exit, then tear everything down via the trap.
-wait -n "$BACKEND_PID" "$FRONTEND_PID"
+# NOTE: do NOT use `wait -n` — it needs bash >= 4.3 and macOS ships bash 3.2.
+# Poll both PIDs instead so we tear down as soon as either one dies.
+while kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; do
+  sleep 0.5
+done
+echo
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  echo "Backend (PID $BACKEND_PID) exited."
+fi
+if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+  echo "Frontend (PID $FRONTEND_PID) exited."
+fi
