@@ -67,10 +67,6 @@ function createWindow(loadUrl: string): BrowserWindow {
 
   win.loadURL(loadUrl);
 
-  if (isDev) {
-    win.webContents.openDevTools({ mode: "detach" });
-  }
-
   return win;
 }
 
