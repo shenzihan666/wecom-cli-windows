@@ -50,6 +50,21 @@ function createWindow(loadUrl: string): BrowserWindow {
     return { action: "allow" };
   });
 
+  // Surface load failures (blank window debugging) and ensure the window is
+  // shown once content is ready, rather than relying on default show behavior.
+  win.webContents.on("did-finish-load", () => {
+    console.log(`[window] finished loading ${loadUrl}`);
+    win.show();
+    win.focus();
+  });
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => {
+    console.error(`[window] FAILED to load url=${url} code=${code} desc=${desc}`);
+    win.show();
+  });
+  win.webContents.on("render-process-gone", (_e, details) => {
+    console.error(`[window] render-process-gone: ${JSON.stringify(details)}`);
+  });
+
   win.loadURL(loadUrl);
 
   if (isDev) {

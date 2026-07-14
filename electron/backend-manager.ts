@@ -22,9 +22,11 @@ import treeKill from "tree-kill";
 export const BACKEND_PORT = 8765;
 export const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
-/** Vite dev server (dev mode only). Matches `frontend/vite.config.ts`. */
+/** Vite dev server (dev mode only). Matches `frontend/vite.config.ts`.
+ * Use `localhost` (not `127.0.0.1`): Vite/vite-plus binds to IPv6 `::1` and
+ * labels it `localhost`, so probing the IPv4 literal never connects. */
 const DEV_FRONTEND_PORT = 5173;
-export const DEV_FRONTEND_URL = `http://127.0.0.1:${DEV_FRONTEND_PORT}`;
+export const DEV_FRONTEND_URL = `http://localhost:${DEV_FRONTEND_PORT}`;
 
 /** Project root = parent of this compiled file's source dir (electron/ → root). */
 export const PROJECT_ROOT = path.resolve(__dirname, "..");
