@@ -22,9 +22,11 @@ import treeKill from "tree-kill";
 export const BACKEND_PORT = 8765;
 export const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
-/** Vite dev server (dev mode only). Matches `frontend/vite.config.ts`. */
+/** Vite dev server (dev mode only). Matches `frontend/vite.config.ts`.
+ * Use `localhost` (not `127.0.0.1`): Vite/vite-plus binds to IPv6 `::1` and
+ * labels it `localhost`, so probing the IPv4 literal never connects. */
 const DEV_FRONTEND_PORT = 5173;
-export const DEV_FRONTEND_URL = `http://127.0.0.1:${DEV_FRONTEND_PORT}`;
+export const DEV_FRONTEND_URL = `http://localhost:${DEV_FRONTEND_PORT}`;
 
 /** Project root = parent of this compiled file's source dir (electron/ → root). */
 export const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -69,7 +71,7 @@ class BackendManager {
     if (existsSync(distIndex)) return;
 
     this.log("frontend/dist missing — building it once (this can take a few seconds)…");
-    await this.runToCompletion("pnpm", ["--filter", "./frontend", "build"], PROJECT_ROOT);
+    await this.runToCompletion("pnpm", ["build"], path.join(PROJECT_ROOT, "frontend"));
     if (!existsSync(distIndex)) {
       throw new Error("Frontend build finished but frontend/dist/index.html still not found.");
     }
@@ -102,7 +104,7 @@ class BackendManager {
     if (opts.devFrontend) {
       // Kick off Vite first so it has time to boot while the backend starts;
       // they're awaited in parallel below.
-      this.startFrontendDev();
+      this.startFrontendDev(opts.onLog);
     }
 
     this.spawnBackend(opts.onLog);
@@ -115,7 +117,19 @@ class BackendManager {
         DEV_FRONTEND_URL,
         "Vite dev server",
         opts.onLog,
-        { timeoutMs: MAX_VITE_PROBE_MS },
+        {
+          timeoutMs: MAX_VITE_PROBE_MS,
+          onTick: () => {
+            // If Vite died mid-boot, surface it immediately instead of polling a dead
+            // port for the full timeout.
+            if (this.frontendProc && this.frontendProc.exitCode !== null && !this.killing) {
+              throw new Error(
+                "Vite dev server exited before becoming ready. " +
+                  "See the [vite] log lines above for the cause.",
+              );
+            }
+          },
+        },
       );
       if (!viteOk) {
         throw new Error(
@@ -193,13 +207,38 @@ class BackendManager {
     });
   }
 
-  private startFrontendDev(): void {
+  private startFrontendDev(onLog?: (line: string) => void): void {
     const isWin = process.platform === "win32";
-    this.log("Starting Vite dev server (frontend)…");
-    this.frontendProc = spawn("pnpm", ["--filter", "./frontend", "dev"], {
-      cwd: PROJECT_ROOT,
+    this.log("Starting Vite dev server (frontend)…", onLog);
+    // Run `pnpm dev` from inside frontend/ rather than `pnpm --filter ./frontend dev` from the root:
+    // the filter form requires a pnpm workspace declaration the root doesn't have, and would silently
+    // "No projects matched" when there is none.
+    const child = spawn("pnpm", ["dev"], {
+      cwd: path.join(PROJECT_ROOT, "frontend"),
+      env: process.env,
       shell: isWin,
       windowsHide: true,
+    });
+    this.frontendProc = child;
+
+    // Pipe Vite's output so failures (port conflict, missing dep, config error)
+    // are visible instead of silently swallowed into ERR_CONNECTION_REFUSED.
+    const pipe = (stream: NodeJS.ReadableStream | null) => {
+      if (!stream) return;
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => {
+        for (const line of chunk.split(/\r?\n/)) {
+          if (line) this.log(`[vite] ${line}`, onLog);
+        }
+      });
+    };
+    pipe(child.stdout);
+    pipe(child.stderr);
+
+    child.on("exit", (code, signal) => {
+      if (!this.killing) {
+        this.log(`Vite dev server exited (code=${code} signal=${signal}).`, onLog);
+      }
     });
   }
 

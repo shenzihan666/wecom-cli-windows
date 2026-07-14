@@ -50,11 +50,22 @@ function createWindow(loadUrl: string): BrowserWindow {
     return { action: "allow" };
   });
 
-  win.loadURL(loadUrl);
+  // Surface load failures (blank window debugging) and ensure the window is
+  // shown once content is ready, rather than relying on default show behavior.
+  win.webContents.on("did-finish-load", () => {
+    console.log(`[window] finished loading ${loadUrl}`);
+    win.show();
+    win.focus();
+  });
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => {
+    console.error(`[window] FAILED to load url=${url} code=${code} desc=${desc}`);
+    win.show();
+  });
+  win.webContents.on("render-process-gone", (_e, details) => {
+    console.error(`[window] render-process-gone: ${JSON.stringify(details)}`);
+  });
 
-  if (isDev) {
-    win.webContents.openDevTools({ mode: "detach" });
-  }
+  win.loadURL(loadUrl);
 
   return win;
 }
@@ -92,23 +103,36 @@ function showErrorWindow(title: string, detail: string): BrowserWindow {
   return win;
 }
 
+// Guard against double-bootstrap: on macOS both `whenReady` and the initial
+// `activate` event can fire during the same launch. Without this, start() runs
+// twice, spawns two backends, and the second one hits the port-reuse path.
+let bootstrapping = false;
+let bootstrapped = false;
+
 async function bootstrap(): Promise<void> {
+  if (bootstrapping || bootstrapped) return;
+  bootstrapping = true;
   try {
     if (!isDev) {
       // Production path: backend serves the prebuilt SPA.
       await backendManager.ensureFrontendDist();
     }
-    await backendManager.start({
+    // `start()` returns the URL to load — use it instead of guessing from
+    // isDev, because it may take the port-reuse fast path (returning the
+    // backend URL even in dev if an existing backend is detected).
+    const target = await backendManager.start({
       devFrontend: isDev,
       onLog: (line) => console.log(`[backend] ${line}`),
     });
 
-    const target = isDev ? DEV_FRONTEND_URL : BACKEND_URL;
     mainWindow = createWindow(target);
+    bootstrapped = true;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error("[main] bootstrap failed:", detail);
     mainWindow = showErrorWindow("启动失败", detail);
+  } finally {
+    bootstrapping = false;
   }
 }
 
